@@ -1,0 +1,3528 @@
+CREATE OR REPLACE PACKAGE BODY APPS.xxc011962_gg_filter_condition_pkg
+/*****************************************************************************************************************************************
+   File Name: XXC011692apkg.pkb
+   Package Name: XXC011962_GG_FILTER_CONDITION_PKG
+   Purpose: This script is a used to filter the date generated from redo log as part of India AVDF solution.
+
+   REVISIONS:
+   Ver        Date         Author               Description                              Reviewed By       Reviewed Date
+   ---------  -----------  ---------------       ----------------------------------      ----------------  -------------
+   1.0        22-Jan-2025  WJ454(BSL)           Created this package.                    GH832             27-Feb-2025
+   1.1        26-Mar-2025  WJ454(BSL)           Commented unused code (CHG0233057)       GH832             26-Mar-2025
+   1.2       06-Jun-2025   XW294                Commented Unused Code and Rearragned
+                                                the code as per new Flow
+******************************************************************************************************************************************/
+AS
+   -- g_program_list   xxc.xxc011962_table_of_varchar2_256 := xxc.xxc011962_table_of_varchar2_256();
+   -- g_queue_list     xxc.xxc011962_table_of_varchar2_256 := xxc.xxc011962_table_of_varchar2_256();
+   -- g_ou_list        xxc.xxc011962_table_of_varchar2_256:= xxc.xxc011962_table_of_varchar2_256();
+
+   -- Function is to check whether its india org or not
+   --   FUNCTION is_ind_org (p_org_id IN NUMBER)
+   --      RETURN NUMBER
+   --   IS
+   --      l_org_count   NUMBER;
+   --   BEGIN
+   --      SELECT COUNT (1)
+   --        INTO l_org_count
+   --        FROM apps.org_organization_definitions
+   --       WHERE SET_OF_BOOKS_ID IN (3043, 3047) AND OPERATING_UNIT = p_org_id;
+   --
+   --      RETURN l_org_count;
+   --   END is_ind_org;
+
+
+   FUNCTION is_ind_org (p_operating_unit    IN NUMBER,
+                        p_organization_id   IN NUMBER)
+      RETURN NUMBER
+   IS
+      l_org_count   NUMBER;
+   BEGIN
+      ----Pass the ORG_id in p_operating_unit and Oraganization_id in p_organization_id
+      SELECT COUNT (1)
+        INTO l_org_count
+        FROM DUAL
+       WHERE (EXISTS
+                 (SELECT 1
+                    FROM apps.org_organization_definitions
+                   WHERE     SET_OF_BOOKS_ID IN (3043, 3047)
+                         AND (   OPERATING_UNIT = p_operating_unit
+                              OR ORGANIZATION_ID = p_organization_id)));
+
+      RETURN l_org_count;
+   END is_ind_org;
+
+
+   FUNCTION is_backend_change_for_ind_org (p_table_name    IN VARCHAR2,
+                                           p_key_value7    IN VARCHAR2,
+                                           p_key_value8    IN VARCHAR2,
+                                           p_key_value9    IN VARCHAR2,
+                                           p_key_value10   IN VARCHAR2,
+                                           p_key_value11   IN VARCHAR2,
+                                           p_key_value12   IN VARCHAR2)
+      RETURN NUMBER
+   IS
+      l_eligible_count   NUMBER;
+      l_status_message   VARCHAR2 (4000);
+   BEGIN
+      -- Commented Unused tables by Aditya R for CRQ CHG0240476
+      --      IF p_table_name = 'PO_RELEASES_ALL'
+      --      THEN
+      --         -- p_key_value7 = ORG_ID
+      --         l_eligible_count := is_ind_org (p_key_value7);
+      --      ELSIF (p_table_name = 'PO_HEADERS_ALL')
+      --      THEN
+      --         -- p_key_value7 = ORG_ID
+      --         l_eligible_count := is_ind_org (p_key_value7);
+      --      ELSIF (p_table_name = 'PO_LINES_ALL')
+      --      THEN
+      --         -- p_key_value7 = ORG_ID
+      --         l_eligible_count := is_ind_org (p_key_value7);
+      --      ELSIF (p_table_name = 'PO_LINE_LOCATIONS_ALL')
+      --      THEN
+      --         -- p_key_value7 = ORG_ID
+      --         l_eligible_count := is_ind_org (p_key_value7);
+      --      ELSIF (p_table_name = 'PO_DISTRIBUTIONS_ALL')
+      --      THEN
+      --         -- p_key_value7 = ORG_ID
+      --         l_eligible_count := is_ind_org (p_key_value7);
+      IF (p_table_name = 'GL_JE_BATCHES')
+      THEN
+         -- p_key_value7 = JE_BATCH_ID
+         -- p_key_value8 = STATUS
+
+         SELECT COUNT (1)
+           INTO l_eligible_count
+           FROM DUAL
+          WHERE EXISTS
+                   (SELECT 1
+                      FROM gl_je_headers gjh, gl_ledgers gl
+                     WHERE     gjh.ledger_id = gl.ledger_id
+                           AND gl.name IN ('IN Primary INR',
+                                           'IN Secondary INR')
+                           AND gjh.je_batch_id = TO_NUMBER (p_key_value7));
+      ELSIF (p_table_name = 'RA_CUST_TRX_TYPES_ALL')
+      THEN
+         -- p_key_value7 = SET_OF_BOOKS_ID
+         IF p_key_value7 IN ('3043', '3047')
+         THEN
+            l_eligible_count := 1;
+         END IF;
+      ELSIF (p_table_name = 'GL_DAILY_RATES')
+      THEN
+         -- p_key_value7 = TO_CURRENCY
+         -- p_key_value8 = CONVERSION_TYPE
+
+         IF p_key_value7 = 'INR' AND p_key_value8 = 'Corporate'
+         THEN
+            l_eligible_count := 1;
+         ELSE
+            l_eligible_count := 0;
+            l_status_message :=
+               (' GL_DAILY RATE IS NOT INSERTED OR DELETED FOR INR CURRENCY ');
+         END IF;
+      ELSIF (p_table_name = 'GL_JE_HEADERS')
+      THEN
+         -- p_key_value7 = JE_HEADER_ID
+         -- p_key_value8 = STATUS
+         -- p_key_value9 = LEDGER_ID
+
+         IF (p_key_value9 IN ('3043', '3047'))
+         THEN
+            l_eligible_count := 1;
+         END IF;
+      ELSIF p_table_name = 'GL_JE_LINES'
+      THEN
+         -- p_key_value7 = JE_HEADER_ID
+         -- p_key_value8 = JE_LINE_NUM
+         -- p_key_value9 = STATUS
+         -- p_key_value10 = LEDGER_ID
+
+         IF (p_key_value10 IN ('3043', '3047'))
+         THEN
+            l_eligible_count := 1;
+         END IF;
+      ELSIF (p_table_name = 'GL_BALANCES')
+      THEN
+         -- p_key_value7 = LEDGER_ID
+
+         IF p_key_value7 IN ('3043', '3047')
+         THEN
+            l_eligible_count := 1;
+         END IF;
+      ELSIF (p_table_name = 'GL_CODE_COMBINATIONS')
+      THEN
+         -- p_key_value7 = CODE_COMBINATION_ID
+         -- p_key_value8 = CHART_OF_ACCOUNTS_ID
+         -- p_key_value9 = SEGMENT1
+
+         IF p_key_value8 = '50368'
+         THEN
+            SELECT COUNT (1)
+              INTO l_eligible_count
+              FROM fnd_flex_values ffv
+             WHERE     ffv.flex_value_set_id = 1014924
+                   AND ffv.attribute9 LIKE 'IN%'
+                   AND ffv.flex_value = p_key_value9;
+         END IF;
+      ELSIF (p_table_name = 'GL_PERIODS')
+      THEN
+         -- p_key_value7 = PERIOD_NAME
+         -- p_key_value8 = PERIOD_SET_NAME
+         IF p_key_value8 = 'Std Accounting'
+         THEN
+            l_eligible_count := 1;
+         END IF;
+      ELSIF (p_table_name = 'GL_PERIOD_STATUSES')
+      THEN
+         -- p_key_value7 = PERIOD_NAME
+         -- p_key_value8 = APPLICATION_ID
+         -- p_key_value9 = LEDGER_ID
+         IF p_key_value9 IN ('3043', '3047')
+         THEN
+            l_eligible_count := 1;
+         END IF;
+      /*     -- Removed
+      ELSIF (p_table_name = 'GL_IMPORT_REFERENCES')
+       THEN
+           -- p_key_value7 = JE_HEADER_ID
+
+           SELECT COUNT(1) INTO l_eligible_count
+             FROM DUAL
+            WHERE EXISTS
+                (
+                  SELECT 1
+                   FROM gl_je_headers gjh,
+                        gl_ledgers gl
+                  WHERE gjh.je_header_id   = TO_NUMBER(p_key_value7)
+                    AND gjh.ledger_id      = gl.ledger_id
+                    AND gl.ledger_id       IN (3043, 3047)
+                    AND gjh.status         = 'P'
+                 );
+                 */
+
+      ELSIF (p_table_name = 'XLA_TRANSACTION_ENTITIES')
+      THEN
+         -- p_key_value7 = entity_id
+         -- p_key_value8 = ledger_id
+
+         IF p_key_value8 IN ('3043', '3047')
+         THEN
+            l_eligible_count := 1;
+         END IF;
+      ELSIF (p_table_name = 'XLA_EVENTS')
+      THEN
+         -- p_key_value7 = EVENT_ID
+
+         SELECT COUNT (1)
+           INTO l_eligible_count
+           FROM DUAL
+          WHERE EXISTS
+                   (SELECT 1
+                      FROM xla_events xe, xla_ae_headers xah, gl_ledgers gl
+                     WHERE     xe.event_id = TO_NUMBER (p_key_value7)
+                           AND xah.event_id = xe.event_id
+                           AND xe.application_id = 200
+                           AND gl.ledger_id = xah.ledger_id
+                           --  AND xah.gl_transfer_status_code = 'Y'
+                           --  AND xah.accounting_entry_status_code ='F'
+                           AND gl.name IN ('IN Primary INR',
+                                           'IN Secondary INR'));
+      ELSIF (p_table_name = 'XLA_AE_HEADERS')
+      THEN
+         -- p_key_value7 = AE_HEADER_ID
+         -- p_key_value8 = LEDGER_ID
+
+         IF p_key_value8 IN ('3043', '3047')
+         THEN
+            l_eligible_count := 1;
+         END IF;
+      ELSIF (p_table_name = 'XLA_AE_LINES')
+      THEN
+         -- p_key_value7 = AE_HEADER_ID
+         -- p_key_value8 = AE_LINE_NUM
+         -- p_key_value9 = LEDGER_ID
+
+         IF p_key_value9 IN ('3043', '3047')
+         THEN
+            l_eligible_count := 1;
+         END IF;
+      ELSIF (p_table_name = 'XLA_DISTRIBUTION_LINKS')
+      THEN
+         -- p_key_value7 = AE_HEADER_ID
+         -- p_key_value8 = TEMP_LINE_NUM
+         -- p_key_value9 = REF_AE_HEADER_ID
+
+         SELECT COUNT (1)
+           INTO l_eligible_count
+           FROM DUAL
+          WHERE EXISTS
+                   (SELECT 1
+                      FROM xla_distribution_links xdl,
+                           xla_ae_headers xah,
+                           gl_ledgers gl
+                     WHERE     xdl.ae_header_id = TO_NUMBER (p_key_value7)
+                           AND xdl.temp_line_num = TO_NUMBER (p_key_value8)
+                           AND xdl.ref_ae_header_id =
+                                  TO_NUMBER (p_key_value9)
+                           AND xah.ae_header_id = xdl.ae_header_id
+                           AND xdl.application_id = 200
+                           AND gl.ledger_id = xah.ledger_id
+                           -- AND xah.gl_transfer_status_code = 'Y'
+                           -- AND xah.accounting_entry_status_code ='F'
+                           AND gl.name IN ('IN Primary INR',
+                                           'IN Secondary INR'));
+      ELSIF (p_table_name = 'RA_CUSTOMER_TRX_ALL')
+      THEN
+         -- p_key_value7 = CUSTOMER_TRX_ID
+         -- p_key_value8 = SET_OF_BOOKS_ID
+
+         IF p_key_value8 IN ('3043', '3047')
+         THEN
+            l_eligible_count := 1;
+         END IF;
+      ELSIF (p_table_name = 'RA_CUSTOMER_TRX_LINES_ALL')
+      THEN
+         -- p_key_value7 = CUSTOMER_TRX_LINE_ID
+         -- p_key_value8 = SET_OF_BOOKS_ID
+
+         IF p_key_value8 IN ('3043', '3047')
+         THEN
+            l_eligible_count := 1;
+         END IF;
+      ELSIF (p_table_name = 'RA_CUST_TRX_LINE_GL_DIST_ALL')
+      THEN
+         -- p_key_value7 = CUST_TRX_LINE_GL_DIST_ID
+         -- p_key_value8 = SET_OF_BOOKS_ID
+
+         IF p_key_value8 IN ('3043', '3047')
+         THEN
+            l_eligible_count := 1;
+         END IF;
+      ELSIF (p_table_name = 'AR_CASH_RECEIPTS_ALL')
+      THEN
+         -- p_key_value7 = CASH_RECEIPT_ID
+         -- p_key_value8 = SET_OF_BOOKS_ID
+
+         IF p_key_value8 IN ('3043', '3047')
+         THEN
+            l_eligible_count := 1;
+         END IF;
+      ELSIF (p_table_name = 'AR_RECEIVABLE_APPLICATIONS_ALL')
+      THEN
+         -- p_key_value7 = RECEIVABLE_APPLICATION_ID
+         -- p_key_value8 = SET_OF_BOOKS_ID
+
+         IF p_key_value8 IN ('3043', '3047')
+         THEN
+            l_eligible_count := 1;
+         END IF;
+      ELSIF (p_table_name = 'AR_CASH_RECEIPT_HISTORY_ALL')
+      THEN
+         -- p_key_value7 = CASH_RECEIPT_HISTORY_ID
+         -- p_key_value8 = ORG_ID
+         -- Checking whether its belong to India org or not
+
+         l_eligible_count := is_ind_org (p_key_value8, NULL);
+      ELSIF (p_table_name = 'AR_ADJUSTMENTS_ALL')
+      THEN
+         -- p_key_value7 = ADJUSTMENT_ID
+         -- p_key_value8 = SET_OF_BOOKS_ID
+
+         IF p_key_value8 IN ('3043', '3047')
+         THEN
+            l_eligible_count := 1;
+         END IF;
+      ELSIF (p_table_name = 'AR_RECEIVABLES_TRX_ALL')
+      THEN
+         -- p_key_value7 = RECEIVABLES_TRX_ID
+         -- p_key_value8 = SET_OF_BOOKS_ID
+
+         IF p_key_value8 IN ('3043', '3047')
+         THEN
+            l_eligible_count := 1;
+         END IF;
+      ELSIF (p_table_name = 'AR_DISTRIBUTIONS_ALL')
+      THEN
+         -- p_key_value7 = LINE_ID
+         -- p_key_value8 = ORG_ID
+         -- Checking whether its belong to India org or not
+
+         l_eligible_count := is_ind_org (p_key_value8, NULL);
+      ELSIF p_table_name = 'HZ_CUST_ACCOUNTS'
+      THEN
+         -- p_key_value7 = CUST_ACCOUNT_ID
+
+         SELECT COUNT (1)
+           INTO l_eligible_count
+           FROM DUAL
+          WHERE EXISTS
+                   (SELECT 1
+                      FROM hz_cust_acct_sites_all hcas,
+                           hr_operating_units hou,
+                           gl_ledgers gl
+                     WHERE     hcas.cust_account_id =
+                                  TO_NUMBER (p_key_value7)
+                           AND hcas.org_id = hou.organization_id
+                           AND hou.set_of_books_id = gl.ledger_id
+                           AND gl.name IN ('IN Primary INR',
+                                           'IN Secondary INR'));
+      ELSIF p_table_name = 'HZ_CUST_ACCT_SITES_ALL'
+      THEN
+         -- p_key_value7 = CUST_ACCT_SITE_ID
+         -- p_key_value8 = ORG_ID
+         -- checking whether its belong to India org or not
+
+         l_eligible_count := is_ind_org (p_key_value8, NULL);
+      ELSIF (p_table_name = 'HZ_CUST_SITE_USES_ALL')
+      THEN
+         -- p_key_value7 = SITE_USE_ID
+         -- p_key_value8 = ORG_ID
+         -- checking whether its belong to India org or not
+
+         l_eligible_count := is_ind_org (p_key_value8, NULL);
+      ELSIF (p_table_name = 'HZ_CUST_PROFILE_AMTS')
+      THEN
+         -- p_key_value7 = CUST_ACCOUNT_PROFILE_ID
+
+         SELECT COUNT (1)
+           INTO l_eligible_count
+           FROM DUAL
+          WHERE EXISTS
+                   (SELECT 1
+                      FROM hz_cust_profile_amts hcpa,
+                           hz_customer_profiles hcp,
+                           hz_cust_acct_sites_all hcas,
+                           hr_operating_units hou,
+                           gl_ledgers gl
+                     WHERE     hcpa.cust_acct_profile_amt_id =
+                                  TO_NUMBER (p_key_value7)
+                           AND hcp.cust_account_profile_id =
+                                  hcpa.cust_account_profile_id
+                           AND hcp.cust_account_id = hcas.cust_account_id
+                           AND hcas.org_id = hou.organization_id
+                           AND hou.set_of_books_id = gl.ledger_id
+                           AND gl.name IN ('IN Primary INR',
+                                           'IN Secondary INR'));
+      ELSIF (p_table_name = 'AP_SUPPLIERS')
+      THEN
+         -- p_key_value7 = VENDOR_ID
+
+         SELECT COUNT (1)
+           INTO l_eligible_count
+           FROM DUAL
+          WHERE EXISTS
+                   (SELECT 1
+                      FROM ap_supplier_sites_all apsa,
+                           hr_operating_units hou,
+                           gl_ledgers gl
+                     WHERE     apsa.vendor_id = TO_NUMBER (p_key_value7)
+                           AND apsa.org_id = hou.organization_id
+                           AND hou.set_of_books_id = gl.ledger_id
+                           AND gl.name IN ('IN Primary INR',
+                                           'IN Secondary INR'));
+      ELSIF (p_table_name = 'AP_SUPPLIER_SITES_ALL')
+      THEN
+         -- p_key_value7 = VENDOR_SITE_ID
+         -- p_key_value8 = ORG_ID
+         -- checking whether its belong to India org or not
+
+         l_eligible_count := is_ind_org (p_key_value8, NULL);
+      ELSIF (p_table_name = 'AP_INVOICES_ALL')
+      THEN
+         -- p_key_value7 = INVOICE_ID
+         -- p_key_value8 = SET_OF_BOOKS_ID
+
+         IF p_key_value8 IN ('3043', '3047')
+         THEN
+            l_eligible_count := 1;
+         END IF;
+      ELSIF (p_table_name = 'AP_INVOICE_LINES_ALL')
+      THEN
+         -- p_key_value7 = INVOICE_ID
+         -- p_key_value8 = LINE_NUMBER
+         -- p_key_value9 = SET_OF_BOOKS_ID
+
+         IF p_key_value9 IN ('3043', '3047')
+         THEN
+            l_eligible_count := 1;
+         END IF;
+      ELSIF (p_table_name = 'AP_INVOICE_DISTRIBUTIONS_ALL')
+      THEN
+         -- p_key_value7 = INVOICE_DISTRIBUTION_ID
+         -- p_key_value8 = SET_OF_BOOKS_ID
+
+         IF p_key_value8 IN ('3043', '3047')
+         THEN
+            l_eligible_count := 1;
+         END IF;
+      ELSIF (p_table_name = 'AP_INVOICE_PAYMENTS_ALL')
+      THEN
+         -- p_key_value7 = INVOICE_PAYMENT_ID
+         -- p_key_value8 = SET_OF_BOOKS_ID
+
+         IF p_key_value8 IN ('3043', '3047')
+         THEN
+            l_eligible_count := 1;
+         END IF;
+      ELSIF (p_table_name = 'AP_CHECKS_ALL')
+      THEN
+         -- p_key_value7 = CHECK_ID
+         -- p_key_value8 = ORG_ID
+         -- Checking whether its belong to India org or not
+
+         l_eligible_count := is_ind_org (p_key_value8, NULL);
+      ELSIF (p_table_name = 'AP_PAYMENT_HISTORY_ALL')
+      THEN
+         -- p_key_value7 = PAYMENT_HISTORY_ID
+         -- p_key_value8 = ORG_ID
+         --p_key_value9 = CHECK_ID
+         -- checking whether its belong to India org or not
+
+         l_eligible_count := is_ind_org (p_key_value8, NULL);
+      ELSIF (p_table_name = 'FA_ADDITIONS_B')                  --need to check
+      THEN
+         -- p_key_value7 = ASSET_ID
+         -- Check whether BOOK_TYPE_CODE is related to India
+
+         SELECT COUNT (1)
+           INTO l_eligible_count
+           FROM fa_books
+          WHERE     asset_id = TO_NUMBER (p_key_value7)
+                AND book_type_code = 'CORPORATE INDIA';
+      ELSIF (p_table_name = 'FA_TRANSACTION_HEADERS')
+      THEN
+         -- p_key_value7 = TRANSACTION_HEADER_ID
+         -- p_key_value8 = BOOK_TYPE_CODE
+
+         IF p_key_value8 = 'CORPORATE INDIA'
+         THEN
+            l_eligible_count := 1;
+         END IF;
+      ELSIF (p_table_name = 'FA_ADJUSTMENTS')
+      THEN
+         -- p_key_value7 = TRANSACTION_HEADER_ID
+         -- p_key_value8 = BOOK_TYPE_CODE
+
+         IF p_key_value8 = 'CORPORATE INDIA'
+         THEN
+            l_eligible_count := 1;
+         END IF;
+      ELSIF (p_table_name = 'FA_DEPRN_DETAIL')
+      THEN
+         -- p_key_value7 = ASSET_ID
+         -- p_key_value8 = PERIOD_COUNTER
+         -- p_key_value9 = DISTRIBUTION_ID
+         -- p_key_value10 = BOOK_TYPE_CODE
+
+         IF p_key_value10 = 'CORPORATE INDIA'
+         THEN
+            l_eligible_count := 1;
+         END IF;
+      ELSIF (p_table_name = 'FA_RETIREMENTS')
+      THEN
+         -- p_key_value7 = ASSET_ID
+         -- p_key_value8 = TRANSACTION_HEADER_ID_IN
+         -- p_key_value9 = BOOK_TYPE_CODE
+
+         IF p_key_value9 = 'CORPORATE INDIA'
+         THEN
+            l_eligible_count := 1;
+         END IF;
+      ELSIF (p_table_name = 'CE_BANK_ACCOUNTS')                --need to check
+      THEN
+         -- p_key_value7 = ACCOUNT_OWNER_ORG_ID
+
+         SELECT COUNT (1)
+           INTO l_eligible_count
+           FROM xle_entity_profiles
+          WHERE     UPPER (name) LIKE '%INDIA%'
+                AND legal_entity_id = TO_NUMBER (p_key_value7);
+      ELSIF (p_table_name = 'IBY_EXTERNAL_PAYEES_ALL') --need to check  -- we having the org id but its not mandetory hence for few records its null
+      THEN
+         -- p_key_value7 = EXT_PAYEE_ID
+         -- p_key_value8 = PAYEE_PARTY_ID
+
+         -- Check whether the payments are related to India Operating Units in IBY_PAYMENTS_ALL table.
+         -- Changed the query by Adiyta R on 12-Jun-2025 CRQ CHG0240476
+
+         SELECT COUNT (1)
+           INTO l_eligible_count
+           FROM DUAL
+          WHERE EXISTS
+                   (SELECT 1
+                      FROM iby_payments_all IBA,
+                           ORG_ORGANIZATION_DEFINITIONS OOD
+                     WHERE     OOD.OPERATING_UNIT = IBA.ORG_ID
+                           AND SET_OF_BOOKS_ID IN (3043, 3047)
+                           AND payee_party_id = TO_NUMBER (p_key_value8));
+      --         SELECT COUNT (1)
+      --           INTO l_eligible_count
+      --           FROM DUAL
+      --          WHERE EXISTS
+      --                   (SELECT 1
+      --                      FROM iby_payments_all
+      --                     WHERE     payee_party_id = TO_NUMBER (p_key_value8)
+      --                           AND is_ind_org (org_id, NULL) = 1);
+
+      ELSIF (p_table_name = 'IBY_PMT_INSTR_USES_ALL')          --need to check
+      THEN
+         -- p_key_value7 = INSTRUMENT_PAYMENT_USE_ID
+
+         SELECT COUNT (1)
+           INTO l_eligible_count
+           FROM DUAL
+          WHERE EXISTS
+                   (SELECT 1
+                      FROM iby_pmt_instr_uses_all ipiu,
+                           iby_external_payees_all iepa,
+                           iby_payments_all ipa
+                     WHERE     ipiu.instrument_payment_use_id =
+                                  TO_NUMBER (p_key_value7)
+                           AND ipiu.ext_pmt_party_id = iepa.ext_payee_id
+                           AND iepa.payee_party_id = ipa.payee_party_id
+                           AND is_ind_org (ipa.org_id, NULL) = 1);
+      ELSIF (p_table_name = 'IBY_EXT_BANK_ACCOUNTS')           --need to check
+      THEN
+         -- p_key_value7 = EXT_BANK_ACCOUNT_ID
+
+         SELECT COUNT (1)
+           INTO l_eligible_count
+           FROM DUAL
+          WHERE EXISTS
+                   (SELECT 1
+                      FROM iby_pmt_instr_uses_all ipiu,
+                           iby_external_payees_all iepa,
+                           iby_ext_bank_accounts ieba,
+                           iby_payments_all ipa
+                     WHERE     ieba.ext_bank_account_id =
+                                  TO_NUMBER (p_key_value7)
+                           AND ipiu.ext_pmt_party_id = iepa.ext_payee_id
+                           AND ipiu.instrument_id = ieba.ext_bank_account_id
+                           AND iepa.payee_party_id = ipa.payee_party_id
+                           AND is_ind_org (ipa.org_id, NULL) = 1);
+      ELSIF (p_table_name = 'FA_BOOKS') -- Added in seperate if condition to consider the all columns for AVDF
+      THEN
+         -- p_key_value7 = TRANSACTION_HEADER_ID_IN
+         -- p_key_value8 = BOOK_TYPE_CODE
+
+         IF p_key_value8 = 'CORPORATE INDIA'
+         THEN
+            l_eligible_count := 1;
+         END IF;
+      ELSIF (p_table_name = 'FA_DISTRIBUTION_ACCOUNTS')
+      THEN
+         -- p_key_value7 = DISTRIBUTION_ID
+         -- p_key_value8 = BOOK_TYPE_CODE
+
+         IF p_key_value8 = 'CORPORATE INDIA'
+         THEN
+            l_eligible_count := 1;
+         END IF;
+      ELSIF p_table_name = 'GL_BALANCES'
+      THEN
+         -- p_key_value7 = LEDGER_ID
+
+         IF p_key_value7 IN ('3043', '3047')
+         THEN
+            l_eligible_count := 1;
+         END IF;
+      -- Tables Added by Aditya R CRQ CHG0240476
+      ELSIF p_table_name = 'GL_LEDGERS'
+      THEN
+         -- p_key_value7 = LEDGER_ID
+
+         IF p_key_value7 IN ('3043', '3047')
+         THEN
+            l_eligible_count := 1;
+         END IF;
+      ELSIF (p_table_name = 'FA_DISTRIBUTION_HISTORY')
+      THEN
+         -- p_key_value7 = TRANSACTION_HEADER_ID_IN
+         -- p_key_value8 = TRANSACTION_HEADER_ID_OUT
+         -- p_key_value9 = BOOK_TYPE_CODE
+
+         IF p_key_value9 = 'CORPORATE INDIA'
+         THEN
+            l_eligible_count := 1;
+         END IF;
+      ELSIF (p_table_name = 'FA_DEPRN_PERIODS')
+      THEN
+         -- p_key_value7 = BOOK_TYPE_CODE
+
+         IF p_key_value7 = 'CORPORATE INDIA'
+         THEN
+            l_eligible_count := 1;
+         END IF;
+      ELSIF (p_table_name = 'FA_CATEGORY_BOOKS')
+      THEN
+         -- p_key_value7 = CATEGORY_ID
+         -- p_key_value8 = BOOK_TYPE_CODE
+
+         IF p_key_value8 = 'CORPORATE INDIA'
+         THEN
+            l_eligible_count := 1;
+         END IF;
+      ELSIF (p_table_name = 'FA_CATEGORIES_B')                 --need to check
+      THEN
+         -- p_key_value7 = CATEGORY_ID
+         -- Check whether BOOK_TYPE_CODE is related to India
+
+         SELECT COUNT (1)
+           INTO l_eligible_count
+           FROM FA_CATEGORY_BOOKS
+          WHERE     category_id = TO_NUMBER (p_key_value7)
+                AND book_type_code = 'CORPORATE INDIA';
+      ELSIF (p_table_name = 'FA_BOOK_CONTROLS')
+      THEN
+         -- p_key_value7 = BOOK_CONTROL_ID
+         -- p_key_value8 = BOOK_TYPE_NAME
+
+         IF p_key_value8 = 'CORPORATE INDIA'
+         THEN
+            l_eligible_count := 1;
+         END IF;
+      ELSIF (p_table_name = 'AR_SYSTEM_PARAMETERS_ALL')
+      THEN
+         -- p_key_value7 = ORG_ID
+
+         l_eligible_count := is_ind_org (p_key_value7, NULL);
+      ELSIF (p_table_name = 'AP_PAYMENT_SCHEDULES_ALL')
+      THEN
+         -- p_key_value7 = INVOICE_ID
+         -- p_key_value8 = PAYMENT_NUM
+         -- p_key_value9 = ORG_ID
+
+         l_eligible_count := is_ind_org (p_key_value9, NULL);
+      ELSIF (p_table_name = 'AP_SYSTEM_PARAMETERS_ALL')
+      THEN
+         -- p_key_value7 = ORG_ID
+
+         l_eligible_count := is_ind_org (p_key_value7, NULL);
+      ELSIF (p_table_name = 'GL_PERIOD_TYPES')
+      THEN
+         -- p_key_value7 = PERIOD_TYPE_ID
+         -- p_key_value8 = DESCRIPTION
+         -- p_key_value9 = PERIOD_TYPE
+
+         SELECT COUNT (1)
+           INTO l_eligible_count
+           FROM gl_periods
+          WHERE     PERIOD_SET_NAME = 'Std Accounting'
+                AND period_type = p_key_value9;
+      ELSIF (p_table_name = 'FA_ASSET_HISTORY')                --need to check
+      THEN
+         -- p_key_value7 = ASSET_ID
+         -- Check whether BOOK_TYPE_CODE is related to India
+
+         SELECT COUNT (1)
+           INTO l_eligible_count
+           FROM FA_BOOKS
+          WHERE     ASSET_id = TO_NUMBER (p_key_value7)
+                AND book_type_code = 'CORPORATE INDIA';
+      ELSIF (P_TABLE_NAME = 'AR_PAYMENT_SCHEDULES_ALL')
+      THEN
+         -- p_key_value7 = PAYMENT_SCHEDULE_ID
+         -- p_key_value8 = CUSTOMER_TRX_ID
+         -- p_key_value9 = ORG_ID
+
+         l_eligible_count := is_ind_org (p_key_value9, NULL);
+      ELSIF (P_TABLE_NAME = 'FA_CALENDAR_PERIODS')
+      THEN
+         -- p_key_value7 = CALENDAR_TYPE
+
+         SELECT COUNT (1)
+           INTO l_eligible_count
+           FROM FA_CALENDAR_PERIODS
+          WHERE p_key_value7 IN ('India Prorate', 'India Asset');
+      -- Following Tables doesn't have any india specific column or relation so directly added. -- Aditya R CRQ CHG0240476
+      ELSIF P_TABLE_NAME IN ('RA_ACCOUNT_DEFAULT_SEGMENTS',
+                             'FND_FLEX_VALUES_TL',
+                             'FND_FLEX_VALUES',
+                             'FA_METHODS',
+                             'AR_RECEIPT_METHODS',
+                             'AR_RECEIPT_CLASSES',
+                             'AP_TERMS_TL',
+                             'AP_BANK_BRANCHES')
+      THEN
+         l_eligible_count := 1;
+      ELSE 
+        l_eligible_count := 1;
+      END IF;
+
+      RETURN l_eligible_count;
+   END is_backend_change_for_ind_org;
+
+   -- Function is to check whether the client/updated user is having super user access or not
+   /*
+   FUNCTION get_su_update_count (p_client_id IN VARCHAR2)
+   RETURN NUMBER
+   IS
+       l_su_count NUMBER;
+   BEGIN
+           SELECT COUNT(1) INTO l_su_count
+             FROM dual
+            WHERE EXISTS
+            (
+               SELECT 1
+                 FROM fnd_profile_options fpo
+                     ,fnd_profile_option_values fpov
+                     ,fnd_user fu
+                WHERE fpo.profile_option_name = 'FND_DIAGNOSTICS'
+                  AND fpo.profile_option_id = fpov.profile_option_id
+                  AND fu.user_id = fpov.level_value
+                  AND fpov.profile_option_value = 'Y'
+                  AND fu.user_name = nvl(p_client_id, fu.user_name)
+           );
+
+       RETURN l_su_count;
+   END get_su_update_count;
+   */
+
+   -- Function is to check the p_prog_val is excluded CP or not
+   FUNCTION get_cp_count (p_prog_val IN VARCHAR2)
+      RETURN NUMBER
+   IS
+      ln_cp_count   NUMBER;
+   BEGIN
+      SELECT COUNT (1)
+        INTO ln_cp_count
+        FROM DUAL
+       WHERE EXISTS
+                (SELECT 1
+                   FROM fnd_concurrent_programs fcp,
+                        fnd_concurrent_queues fcq,
+                        (SELECT SUBSTR (p_prog_val,
+                                        1,
+                                        (INSTR (p_prog_val, '@') - 1))
+                                   AS program
+                           FROM DUAL) cp_check
+                  WHERE (   program = fcp.concurrent_program_name
+                         OR program = fcq.CONCURRENT_QUEUE_NAME));
+
+      RETURN ln_cp_count;
+   END get_cp_count;
+
+   PROCEDURE xxcbolt_gg_filter_condition_prc (
+      p_prog_val           IN     VARCHAR2 DEFAULT NULL,
+      p_client_id          IN     VARCHAR2 DEFAULT NULL,
+      p_event_time         IN     VARCHAR2 DEFAULT NULL,
+      p_collection_time    IN     VARCHAR2 DEFAULT NULL,
+      p_event              IN     VARCHAR2,
+      p_table_name         IN     VARCHAR2,
+      p_key_value1         IN     VARCHAR2 DEFAULT NULL,
+      p_key_value2         IN     VARCHAR2 DEFAULT NULL,
+      p_key_value3         IN     VARCHAR2 DEFAULT NULL,
+      p_key_value4         IN     VARCHAR2 DEFAULT NULL,
+      p_key_value5         IN     VARCHAR2 DEFAULT NULL,
+      p_key_value6         IN     VARCHAR2 DEFAULT NULL,
+      p_key_value7         IN     VARCHAR2 DEFAULT NULL,
+      p_key_value8         IN     VARCHAR2 DEFAULT NULL,
+      p_key_value9         IN     VARCHAR2 DEFAULT NULL,
+      p_key_value10        IN     VARCHAR2 DEFAULT NULL,
+      p_key_value11        IN     VARCHAR2 DEFAULT NULL,
+      p_key_value12        IN     VARCHAR2 DEFAULT NULL,
+      p_record_timestamp   IN     VARCHAR2 DEFAULT NULL,
+      p_commit_timestamp   IN     VARCHAR2 DEFAULT NULL,
+      p_count_val             OUT VARCHAR2,
+      p_err_msg               OUT VARCHAR2) --Removed Old and new values Parameter by Aditya R CRQ CHG0240476
+   AS
+      --Commented Unused Parameters by Aditya R CRQ CHG0240476
+      --ln_cp_upd_ind            NUMBER := 0;
+      --ln_superuser_access_ind     NUMBER := 0;
+      ln_count                 NUMBER := 0;
+      --ln_compare_old_new_values   NUMBER := 0;
+      lc_key_value             xxc.xxc011962_goldengate_log.log_key_value%TYPE;
+      ln_ind_asset_ind         NUMBER := 0;
+      ln_ind_category_ind      NUMBER := 0; --Added by Aditya R on 6-jun-25 CRQ CHG0240476
+      ln_ind_gl_period_types   NUMBER := 0; --Added by Aditya R on 7-jun-25 CRQ CHG0240476
+      ln_ind_fa_cal_period     NUMBER := 0; --Added by Aditya R on 9-jun-25 CRQ CHG0240476
+      --lc_old_val                  VARCHAR2 (4000);
+      --lc_new_val                  VARCHAR2 (4000);
+      l_status_message         VARCHAR2 (4000);
+      l_parameter_mess         VARCHAR2 (1000);
+      l_start_time             DATE;
+
+
+
+      -- Procedure for logging data for debugging
+      PROCEDURE xxcbolt_insert_debug_log (p_log_object       VARCHAR2,
+                                          p_log_key_value    VARCHAR2,
+                                          p_qry_cnt          NUMBER,
+                                          -- p_old_val          VARCHAR2,
+                                          -- p_new_val          VARCHAR2,
+                                          p_status           VARCHAR2)
+      AS
+         PRAGMA AUTONOMOUS_TRANSACTION;
+      BEGIN
+         l_parameter_mess :=            -- Added by Aditya R on 9-Jun-2025 CRQ CHG0240476
+            (   ' Event is '
+             || p_event
+             || ' , Client ID is '
+             || p_client_id
+             || ' , Event time is '
+             || p_event_time
+             || ' , Collection Time is '
+             || p_collection_time
+             || ' Pkg START TIME :- '
+             || l_start_time
+             || ' Pkg END TIME :- '
+             || SYSDATE);
+
+         INSERT INTO xxc.xxc011962_goldengate_log
+            SELECT XXC011962_GG_LOG_SEQ.NEXTVAL,
+                   SYSDATE,
+                   p_log_object,
+                   p_log_key_value,
+                   p_qry_cnt,
+                      'Count query ran for '
+                   || p_log_object
+                   || DECODE (l_parameter_mess, NULL, NULL, '|')
+                   || DECODE (l_parameter_mess, NULL, NULL, l_parameter_mess)
+                   || DECODE (p_err_msg, NULL, NULL, '|')
+                   || DECODE (p_err_msg, NULL, NULL, p_err_msg),
+                   --      || decode(l_status_message, NULL, NULL, '|')
+                   --     || decode(l_status_message, NULL, NULL, l_status_message)
+                   --                   || DECODE (p_err_msg, NULL, NULL, '|')
+                   --                   || DECODE (p_err_msg, NULL, NULL, p_err_msg),
+                   --lc_old_val,
+                   --lc_new_val,
+                   p_status
+              FROM DUAL
+             WHERE     1 = 1
+                   AND NVL (
+                          apps.fnd_profile.VALUE ('XXC011962_DEBUG_FLAG_PRF'),
+                          'No') = 'Yes' /*Profile option based Debug Logging to be made available by adding and condition here*/
+                                       ;
+
+         COMMIT;
+      EXCEPTION
+         WHEN OTHERS
+         THEN
+            p_err_msg :=
+                  'Error while inserting into debug table xxc011962_goldengate_log'
+               || SQLERRM;
+      END;
+   BEGIN
+      -- Initialize variables
+      --Commented Unused Parameters by Aditya R CRQ CHG0240476
+      ln_count := 0;
+      --ln_compare_old_new_values := 0;
+      lc_key_value := NULL;
+      --lc_new_val := NULL;
+      -- lc_old_val := NULL;
+      --ln_cp_upd_ind := 0;
+      --ln_superuser_access_ind := 0;
+      p_count_val := 0;
+      l_status_message := NULL;
+
+
+      l_start_time := SYSDATE;
+
+      -- Concatenate the Parameters for logging.
+      BEGIN
+         SELECT    p_prog_val
+                || NVL2 (p_client_id, '|' || p_client_id, '')
+                || NVL2 (p_event_time, '|' || p_event_time, '')
+                || NVL2 (p_collection_time, '|' || p_collection_time, '')
+                || NVL2 (p_event, '|' || p_event, '')
+                || NVL2 (p_key_value1, '|' || p_key_value1, '')
+                || NVL2 (p_key_value2, '|' || p_key_value2, '')
+                || NVL2 (p_key_value3, '|' || p_key_value3, '')
+                || NVL2 (p_key_value4, '|' || p_key_value4, '')
+                || NVL2 (p_key_value5, '|' || p_key_value5, '')
+                || NVL2 (p_key_value6, '|' || p_key_value6, '')
+                || NVL2 (p_key_value7, '|' || p_key_value7, '')
+                || NVL2 (p_key_value8, '|' || p_key_value8, '')
+                || NVL2 (p_key_value9, '|' || p_key_value9, '')
+                || NVL2 (p_key_value10, '|' || p_key_value10, '')
+                || NVL2 (p_key_value11, '|' || p_key_value11, '')
+                || NVL2 (p_key_value12, '|' || p_key_value12, '')
+                || NVL2 (p_record_timestamp, '|' || p_record_timestamp, '')
+                || NVL2 (p_commit_timestamp, '|' || p_commit_timestamp, '')
+           INTO lc_key_value
+           FROM DUAL;
+      EXCEPTION
+         WHEN OTHERS
+         THEN
+            lc_key_value := NULL;
+      END;
+
+      -- To check change is occured for inscope column or not
+
+      ---CHECKING CP PROGRAM = 0 (BACKEND) =1 (FRONTEND)
+      -- Rearranged the code as per new flow and commented unused code by Aditya R CRQ CHG0240476
+      ln_count := get_cp_count (p_prog_val);
+
+      IF ln_count = 0
+      THEN
+         IF p_event IN ('DELETE', 'INSERT')
+         THEN                        -- If the record is deleted  from backend
+            IF p_client_id IS NULL
+            THEN
+               p_count_val :=
+                  is_backend_change_for_ind_org (p_table_name,
+                                                 p_key_value7,
+                                                 p_key_value8,
+                                                 p_key_value9,
+                                                 p_key_value10,
+                                                 p_key_value11,
+                                                 p_key_value12);
+
+               IF p_count_val = 1
+               THEN
+                  ln_count := 1;
+                  l_status_message :=
+                        'Record is '
+                     || p_event
+                     || 'ed from backend and is India Specific so capturing it in AVDF';
+               ELSE
+                  l_status_message :=
+                     'Record is not India Specific so ignoring the record';
+               END IF;
+            ELSE
+               l_status_message :=
+                     'Record is '
+                  || p_event
+                  || 'ed from fronend and its a draft';
+            END IF;
+         ELSE                            --p_event NOT IN ('DELETE', 'INSERT')
+            --THEN
+            --Removed old new vlaue conditions by Aditya R CRQ CHG0240476
+            -- Processing Individual tables
+            --            IF  p_table_name IN ('PO_HEADERS_ALL',
+            --                                    'PO_LINES_ALL',
+            --                                    'PO_LINE_LOCATIONS_ALL',
+            --                                    'PO_DISTRIBUTIONS_ALL',
+            --                                    'PO_RELEASES_ALL')
+            --               AND p_client_id IS NOT NULL
+            --            THEN
+            --               ln_count := 0;
+            --            ELSif
+            IF (p_table_name = 'GL_JE_BATCHES')
+            THEN
+               IF p_key_value2 = 'P'                            --ln_count = 1
+               THEN
+                  -- p_key_value1 = JE_BATCH_ID
+                  -- p_key_value2 = STATUS
+
+                  SELECT COUNT (1)
+                    INTO ln_count
+                    FROM DUAL
+                   WHERE EXISTS
+                            (SELECT 1
+                               FROM gl_je_headers gjh, gl_ledgers gl
+                              WHERE     gjh.ledger_id = gl.ledger_id
+                                    AND gl.name IN ('IN Primary INR',
+                                                    'IN Secondary INR')
+                                    AND gjh.status = 'P'
+                                    AND gjh.je_batch_id =
+                                           TO_NUMBER (p_key_value1));
+               END IF;
+            ELSIF (p_table_name = 'RA_CUST_TRX_TYPES_ALL') --added  CHG0233057
+            THEN
+               -- p_key_value1 = SET_OF_BOOKS_ID
+
+               IF p_key_value1 IN ('3043', '3047')
+               THEN
+                  ln_count := 1;
+               END IF;
+            ELSIF (p_table_name = 'GL_DAILY_RATES')
+            THEN
+               -- p_key_value1 = TO_CURRENCY
+               -- p_key_value2 = CONVERSION_TYPE
+
+
+               IF p_key_value1 = 'INR' AND p_key_value2 = 'Corporate'
+               THEN
+                  ln_count := 1;
+               ELSE
+                  ln_count := 0;
+                  l_status_message :=
+                     (' GL_DAILY RATE IS NOT UPDATED FOR INR CURRENCY ');
+               END IF;
+            ELSIF (p_table_name = 'GL_JE_HEADERS')
+            THEN
+               -- p_key_value1 = JE_HEADER_ID
+               -- p_key_value2 = STATUS
+               -- p_key_value3 = LEDGER_ID
+
+               IF (p_key_value3 IN ('3043', '3047') AND p_key_value2 = 'P')
+               THEN
+                  ln_count := 1;
+               END IF;
+            ELSIF p_table_name = 'GL_LEDGERS'
+            THEN
+               -- p_key_value1 = LEDGER_ID
+
+               IF p_key_value1 IN ('3043', '3047')
+               THEN
+                  ln_count := 1;
+               END IF;
+            ELSIF p_table_name = 'GL_JE_LINES'
+            THEN
+               -- p_key_value1 = JE_HEADER_ID
+               -- p_key_value2 = JE_LINE_NUM
+               -- p_key_value3 = STATUS
+               -- p_key_value4 = LEDGER_ID
+
+               IF (p_key_value4 IN ('3043', '3047') AND p_key_value3 = 'P')
+               THEN
+                  ln_count := 1;
+               END IF;
+            ELSIF (p_table_name = 'GL_BALANCES' AND p_client_id IS NULL)
+            THEN
+               -- p_key_value1 = LEDGER_ID
+
+
+               IF p_key_value1 IN ('3043', '3047')
+               THEN
+                  ln_count := 1;
+               END IF;
+            ELSIF (p_table_name = 'GL_CODE_COMBINATIONS')
+            THEN
+               -- p_key_value1 = CODE_COMBINATION_ID
+               -- p_key_value2 = CHART_OF_ACCOUNTS_ID
+               -- p_key_value3 = SEGMENT1
+
+
+               IF p_key_value2 = '50368'
+               THEN
+                  SELECT COUNT (1)
+                    INTO ln_count
+                    FROM fnd_flex_values ffv
+                   WHERE     ffv.flex_value_set_id = 1014924
+                         AND ffv.attribute9 LIKE 'IN%'
+                         AND ffv.flex_value = p_key_value3;
+               END IF;
+            ELSIF (p_table_name = 'GL_PERIODS')
+            THEN
+               -- p_key_value1 = PERIOD_NAME
+               -- p_key_value2 = PERIOD_SET_NAME
+
+
+               IF p_key_value2 = 'Std Accounting'
+               THEN
+                  ln_count := 1;
+               END IF;
+            ELSIF (p_table_name = 'GL_PERIOD_STATUSES')
+            THEN
+               -- p_key_value1 = PERIOD_NAME
+               -- p_key_value2 = APPLICATION_ID
+               -- p_key_value3 = LEDGER_ID
+
+
+               SELECT COUNT (1)
+                 INTO ln_count
+                 FROM DUAL
+                WHERE EXISTS
+                         (SELECT 1
+                            FROM gl_period_statuses gps,
+                                 gl_periods gp,
+                                 gl_ledgers gll
+                           WHERE     gps.period_name = p_key_value1
+                                 AND gps.application_id =
+                                        TO_NUMBER (p_key_value2)
+                                 AND gps.ledger_id = p_key_value3
+                                 AND gps.ledger_id = gll.ledger_id
+                                 AND gp.period_name = gps.period_name
+                                 AND gp.period_set_name = gll.period_set_name
+                                 AND gll.name IN ('IN Primary INR',
+                                                  'IN Secondary INR'));
+            /*     -- Removed
+            ELSIF (p_table_name = 'GL_IMPORT_REFERENCES')
+             THEN
+                 -- p_key_value1 = JE_HEADER_ID
+
+                 SELECT COUNT(1) INTO ln_count
+                   FROM DUAL
+                  WHERE EXISTS
+                      (
+                        SELECT 1
+                         FROM gl_je_headers gjh,
+                              gl_ledgers gl
+                        WHERE gjh.je_header_id   = TO_NUMBER(p_key_value1)
+                          AND gjh.ledger_id      = gl.ledger_id
+                          AND gl.ledger_id       IN (3043, 3047)
+                          AND gjh.status         = 'P'
+                       );
+                       */
+
+            ELSIF (p_table_name = 'XLA_TRANSACTION_ENTITIES')
+            THEN
+               -- p_key_value1 = entity_id
+               -- p_key_value2 = ledger_id
+
+               IF p_key_value2 IN ('3043', '3047')
+               THEN
+                  SELECT COUNT (1)
+                    INTO ln_count
+                    FROM DUAL
+                   WHERE EXISTS
+                            (SELECT 1
+                               FROM xla_transaction_entities xte,
+                                    gl_ledgers gl,
+                                    xla_ae_headers xah
+                              WHERE     xte.entity_id =
+                                           TO_NUMBER (p_key_value1)
+                                    AND xte.application_id = 200
+                                    AND xte.ledger_id = gl.ledger_id
+                                    AND xah.entity_id = xte.entity_id
+                                    AND xah.application_id =
+                                           xte.application_id
+                                    AND xah.gl_transfer_status_code = 'Y'
+                                    AND xah.accounting_entry_status_code =
+                                           'F'
+                                    AND gl.name IN ('IN Primary INR',
+                                                    'IN Secondary INR'));
+               END IF;
+            ELSIF (p_table_name = 'XLA_EVENTS')
+            THEN
+               -- p_key_value1 = EVENT_ID
+
+
+               SELECT COUNT (1)
+                 INTO ln_count
+                 FROM DUAL
+                WHERE EXISTS
+                         (SELECT 1
+                            FROM xla_events xe,
+                                 xla_ae_headers xah,
+                                 gl_ledgers gl
+                           WHERE     xe.event_id = TO_NUMBER (p_key_value1)
+                                 AND xah.event_id = xe.event_id
+                                 AND xe.application_id = 200
+                                 AND gl.ledger_id = xah.ledger_id
+                                 AND xah.gl_transfer_status_code = 'Y'
+                                 AND xah.accounting_entry_status_code = 'F'
+                                 AND gl.name IN ('IN Primary INR',
+                                                 'IN Secondary INR'));
+            ELSIF (p_table_name = 'XLA_AE_HEADERS')
+            THEN
+               -- p_key_value1 = AE_HEADER_ID
+               -- p_key_value2 = LEDGER_ID
+
+               IF p_key_value2 IN ('3043', '3047')
+               THEN
+                  SELECT COUNT (1)
+                    INTO ln_count
+                    FROM DUAL
+                   WHERE EXISTS
+                            (SELECT 1
+                               FROM xla_ae_headers XAH, gl_ledgers gl
+                              WHERE     xah.ae_header_id =
+                                           TO_NUMBER (p_key_value1)
+                                    AND xah.gl_transfer_status_code = 'Y'
+                                    AND xah.accounting_entry_status_code =
+                                           'F'
+                                    AND gl.ledger_id = xah.ledger_id
+                                    AND gl.name IN ('IN Primary INR',
+                                                    'IN Secondary INR'));
+               END IF;
+            ELSIF (p_table_name = 'XLA_AE_LINES')
+            THEN
+               -- p_key_value1 = AE_HEADER_ID
+               -- p_key_value2 = AE_LINE_NUM
+               -- p_key_value3 = LEDGER_ID
+
+               IF p_key_value3 IN ('3043', '3047')
+               THEN
+                  SELECT COUNT (1)
+                    INTO ln_count
+                    FROM DUAL
+                   WHERE EXISTS
+                            (SELECT 1
+                               FROM xla_ae_headers xah,
+                                    xla_ae_lines xal,
+                                    gl_ledgers gl
+                              WHERE     xal.ae_header_id =
+                                           TO_NUMBER (p_key_value1)
+                                    AND xal.ae_line_num =
+                                           TO_NUMBER (p_key_value2)
+                                    AND xah.ae_header_id = xal.ae_header_id
+                                    AND gl.ledger_id = xah.ledger_id
+                                    AND xah.gl_transfer_status_code = 'Y'
+                                    AND xah.accounting_entry_status_code =
+                                           'F'
+                                    AND gl.name IN ('IN Primary INR',
+                                                    'IN Secondary INR'));
+               END IF;
+            ELSIF (p_table_name = 'XLA_DISTRIBUTION_LINKS')
+            THEN
+               -- p_key_value1 = AE_HEADER_ID
+               -- p_key_value2 = TEMP_LINE_NUM
+               -- p_key_value3 = REF_AE_HEADER_ID
+
+               SELECT COUNT (1)
+                 INTO ln_count
+                 FROM DUAL
+                WHERE EXISTS
+                         (SELECT 1
+                            FROM xla_distribution_links xdl,
+                                 xla_ae_headers xah,
+                                 gl_ledgers gl
+                           WHERE     xdl.ae_header_id =
+                                        TO_NUMBER (p_key_value1)
+                                 AND xdl.temp_line_num =
+                                        TO_NUMBER (p_key_value2)
+                                 AND xdl.ref_ae_header_id =
+                                        TO_NUMBER (p_key_value3)
+                                 AND xah.ae_header_id = xdl.ae_header_id
+                                 AND xdl.application_id = 200
+                                 AND gl.ledger_id = xah.ledger_id
+                                 AND xah.gl_transfer_status_code = 'Y'
+                                 AND xah.accounting_entry_status_code = 'F'
+                                 AND gl.name IN ('IN Primary INR',
+                                                 'IN Secondary INR'));
+            ELSIF (p_table_name = 'RA_CUSTOMER_TRX_ALL')
+            THEN
+               -- p_key_value1 = CUSTOMER_TRX_ID
+               -- p_key_value2 = SET_OF_BOOKS_ID
+
+               IF p_key_value2 IN ('3043', '3047')
+               THEN
+                  SELECT COUNT (1)
+                    INTO ln_count
+                    FROM DUAL
+                   WHERE EXISTS
+                            (SELECT 1
+                               FROM ra_cust_trx_line_gl_dist_all rctld,
+                                    xla_distribution_links xdl,
+                                    xla_ae_headers xah,
+                                    gl_ledgers gl,
+                                    xla_ae_lines xal,
+                                    gl_import_references gir,
+                                    gl_je_headers gje
+                              WHERE     rctld.customer_trx_id =
+                                           TO_NUMBER (p_key_value1)
+                                    AND xdl.source_distribution_type =
+                                           'RA_CUST_TRX_LINE_GL_DIST_ALL'
+                                    AND xdl.source_distribution_id_num_1 =
+                                           rctld.cust_trx_line_gl_dist_id
+                                    AND xdl.application_id = 222
+                                    AND xdl.ae_header_id = xah.ae_header_id
+                                    AND xah.ledger_id = gl.ledger_id
+                                    AND gl.name IN ('IN Primary INR',
+                                                    'IN Secondary INR')
+                                    AND xdl.ae_header_id = xal.ae_header_id
+                                    AND xdl.ae_line_num = xal.ae_line_num
+                                    AND xal.application_id = 222
+                                    AND xal.gl_sl_link_id = gir.gl_sl_link_id
+                                    AND gir.gl_sl_link_table = 'XLAJEL'
+                                    AND gir.je_header_id = gje.je_header_id
+                                    AND gje.ledger_id = gl.ledger_id
+                                    AND gje.status = 'P'
+                                    AND gir.creation_date <=
+                                           TO_DATE (
+                                              NVL (
+                                                 TO_CHAR (
+                                                    TO_TIMESTAMP (
+                                                       p_collection_time,
+                                                       'YYYY-MM-DD HH24:MI:SS.FF6'),
+                                                    'YYYY-MM-DD HH24:MI:SS'),
+                                                 TO_CHAR (
+                                                    SYSDATE,
+                                                    'YYYY-MM-DD HH24:MI:SS')),
+                                              'YYYY-MM-DD HH24:MI:SS'));
+               END IF;
+            ELSIF (p_table_name = 'RA_CUSTOMER_TRX_LINES_ALL')
+            THEN
+               -- p_key_value1 = CUSTOMER_TRX_LINE_ID
+               -- p_key_value2 = SET_OF_BOOKS_ID
+
+               IF p_key_value2 IN ('3043', '3047')
+               THEN
+                  SELECT COUNT (1)
+                    INTO ln_count
+                    FROM DUAL
+                   WHERE EXISTS
+                            (SELECT 1
+                               FROM ra_cust_trx_line_gl_dist_all rctld,
+                                    xla_distribution_links xdl,
+                                    xla_ae_headers xah,
+                                    gl_ledgers gl,
+                                    xla_ae_lines xal,
+                                    gl_import_references gir,
+                                    gl_je_headers gje
+                              WHERE     rctld.customer_trx_line_id =
+                                           TO_NUMBER (p_key_value1)
+                                    AND xdl.source_distribution_type =
+                                           'RA_CUST_TRX_LINE_GL_DIST_ALL'
+                                    AND xdl.source_distribution_id_num_1 =
+                                           rctld.cust_trx_line_gl_dist_id
+                                    AND xdl.application_id = 222
+                                    AND xdl.ae_header_id = xah.ae_header_id
+                                    AND xah.ledger_id = gl.ledger_id
+                                    AND gl.name IN ('IN Primary INR',
+                                                    'IN Secondary INR')
+                                    AND xdl.ae_header_id = xal.ae_header_id
+                                    AND xdl.ae_line_num = xal.ae_line_num
+                                    AND xal.application_id = 222
+                                    AND xal.gl_sl_link_id = gir.gl_sl_link_id
+                                    AND gir.gl_sl_link_table = 'XLAJEL'
+                                    AND gir.je_header_id = gje.je_header_id
+                                    AND gje.ledger_id = gl.ledger_id
+                                    AND gje.status = 'P'
+                                    AND gir.creation_date <=
+                                           TO_DATE (
+                                              NVL (
+                                                 TO_CHAR (
+                                                    TO_TIMESTAMP (
+                                                       p_collection_time,
+                                                       'YYYY-MM-DD HH24:MI:SS.FF6'),
+                                                    'YYYY-MM-DD HH24:MI:SS'),
+                                                 TO_CHAR (
+                                                    SYSDATE,
+                                                    'YYYY-MM-DD HH24:MI:SS')),
+                                              'YYYY-MM-DD HH24:MI:SS'));
+               END IF;
+            ELSIF (p_table_name = 'RA_CUST_TRX_LINE_GL_DIST_ALL')
+            THEN
+               -- p_key_value1 = CUST_TRX_LINE_GL_DIST_ID
+               -- p_key_value2 = SET_OF_BOOKS_ID
+
+               IF p_key_value2 IN ('3043', '3047')
+               THEN
+                  SELECT COUNT (1)
+                    INTO ln_count
+                    FROM DUAL
+                   WHERE EXISTS
+                            (SELECT 1
+                               FROM xla_distribution_links xdl,
+                                    xla_ae_headers xah,
+                                    gl_ledgers gl,
+                                    xla_ae_lines xal,
+                                    gl_import_references gir,
+                                    gl_je_headers gje
+                              WHERE     xdl.source_distribution_id_num_1 =
+                                           TO_NUMBER (p_key_value1)
+                                    AND xdl.source_distribution_type =
+                                           'RA_CUST_TRX_LINE_GL_DIST_ALL'
+                                    AND xdl.application_id = 222
+                                    AND xdl.ae_header_id = xah.ae_header_id
+                                    AND xah.ledger_id = gl.ledger_id
+                                    AND gl.name IN ('IN Primary INR',
+                                                    'IN Secondary INR')
+                                    AND xdl.ae_header_id = xal.ae_header_id
+                                    AND xdl.ae_line_num = xal.ae_line_num
+                                    AND xal.application_id = 222
+                                    AND xal.gl_sl_link_id = gir.gl_sl_link_id
+                                    AND gir.gl_sl_link_table = 'XLAJEL'
+                                    AND gir.je_header_id = gje.je_header_id
+                                    AND gje.ledger_id = gl.ledger_id
+                                    AND gje.status = 'P'
+                                    AND gir.creation_date <=
+                                           TO_DATE (
+                                              NVL (
+                                                 TO_CHAR (
+                                                    TO_TIMESTAMP (
+                                                       p_collection_time,
+                                                       'YYYY-MM-DD HH24:MI:SS.FF6'),
+                                                    'YYYY-MM-DD HH24:MI:SS'),
+                                                 TO_CHAR (
+                                                    SYSDATE,
+                                                    'YYYY-MM-DD HH24:MI:SS')),
+                                              'YYYY-MM-DD HH24:MI:SS'));
+               END IF;
+            ELSIF (p_table_name = 'AR_CASH_RECEIPTS_ALL')
+            THEN
+               -- p_key_value1 = CASH_RECEIPT_ID
+               -- p_key_value2 = SET_OF_BOOKS_ID
+
+               IF p_key_value2 IN ('3043', '3047')
+               THEN
+                  SELECT COUNT (1)
+                    INTO ln_count
+                    FROM DUAL
+                   WHERE EXISTS
+                            (SELECT 1
+                               FROM ar_cash_receipt_history_all arch,
+                                    ar_distributions_all ada,
+                                    xla_distribution_links xdl,
+                                    xla_ae_headers xah,
+                                    gl_ledgers gl,
+                                    xla_ae_lines xal,
+                                    gl_import_references gir,
+                                    gl_je_headers gjh
+                              WHERE     arch.cash_receipt_id =
+                                           TO_NUMBER (p_key_value1)
+                                    AND ada.source_table = 'CRH'
+                                    AND arch.cash_receipt_history_id =
+                                           ada.source_id
+                                    AND xdl.source_distribution_type =
+                                           'AR_DISTRIBUTIONS_ALL'
+                                    AND xdl.source_distribution_id_num_1 =
+                                           ada.line_id
+                                    AND xdl.application_id = 222
+                                    AND xdl.ae_header_id = xah.ae_header_id
+                                    AND xah.ledger_id = gl.ledger_id
+                                    AND gl.name IN ('IN Primary INR',
+                                                    'IN Secondary INR')
+                                    AND xdl.ae_header_id = xal.ae_header_id
+                                    AND xdl.ae_line_num = xal.ae_line_num
+                                    AND xal.application_id = 222
+                                    AND xal.gl_sl_link_id = gir.gl_sl_link_id
+                                    AND gir.je_header_id = gjh.je_header_id
+                                    AND gjh.status = 'P'
+                                    AND gir.creation_date <=
+                                           TO_DATE (
+                                              NVL (
+                                                 TO_CHAR (
+                                                    TO_TIMESTAMP (
+                                                       p_collection_time,
+                                                       'YYYY-MM-DD HH24:MI:SS.FF6'),
+                                                    'YYYY-MM-DD HH24:MI:SS'),
+                                                 TO_CHAR (
+                                                    SYSDATE,
+                                                    'YYYY-MM-DD HH24:MI:SS')),
+                                              'YYYY-MM-DD HH24:MI:SS'));
+               END IF;
+            ELSIF (p_table_name = 'AR_RECEIVABLE_APPLICATIONS_ALL')
+            THEN
+               -- p_key_value1 = RECEIVABLE_APPLICATION_ID
+               -- p_key_value2 = SET_OF_BOOKS_ID
+
+               IF p_key_value2 IN ('3043', '3047')
+               THEN
+                  SELECT COUNT (1)
+                    INTO ln_count
+                    FROM DUAL
+                   WHERE EXISTS
+                            (SELECT 1
+                               FROM ar_distributions_all ada,
+                                    xla_distribution_links xdl,
+                                    xla_ae_headers xah,
+                                    gl_ledgers gl,
+                                    xla_ae_lines xal,
+                                    gl_import_references gir,
+                                    gl_je_headers gjh
+                              WHERE     ada.source_id =
+                                           TO_NUMBER (p_key_value1)
+                                    AND ada.source_table = 'RA'
+                                    AND xdl.source_distribution_type =
+                                           'AR_DISTRIBUTIONS_ALL'
+                                    AND xdl.source_distribution_id_num_1 =
+                                           ada.line_id
+                                    AND xdl.application_id = 222
+                                    AND xdl.ae_header_id = xah.ae_header_id
+                                    AND xah.ledger_id = gl.ledger_id
+                                    AND gl.name IN ('IN Primary INR',
+                                                    'IN Secondary INR')
+                                    AND xdl.ae_header_id = xal.ae_header_id
+                                    AND xdl.ae_line_num = xal.ae_line_num
+                                    AND xal.application_id = 222
+                                    AND xal.gl_sl_link_id = gir.gl_sl_link_id
+                                    AND gir.je_header_id = gjh.je_header_id
+                                    AND gjh.ledger_id = gl.ledger_id
+                                    AND gjh.status = 'P'
+                                    AND gir.creation_date <=
+                                           TO_DATE (
+                                              NVL (
+                                                 TO_CHAR (
+                                                    TO_TIMESTAMP (
+                                                       p_collection_time,
+                                                       'YYYY-MM-DD HH24:MI:SS.FF6'),
+                                                    'YYYY-MM-DD HH24:MI:SS'),
+                                                 TO_CHAR (
+                                                    SYSDATE,
+                                                    'YYYY-MM-DD HH24:MI:SS')),
+                                              'YYYY-MM-DD HH24:MI:SS'));
+               END IF;
+            ELSIF (p_table_name = 'AR_CASH_RECEIPT_HISTORY_ALL')
+            THEN
+               -- p_key_value1 = CASH_RECEIPT_HISTORY_ID
+               -- p_key_value2 = ORG_ID
+               -- Checking whether its belong to India org or not
+
+               ln_count := is_ind_org (p_key_value2, NULL);
+
+               IF ln_count > 0
+               THEN
+                  SELECT COUNT (1)
+                    INTO ln_count
+                    FROM DUAL
+                   WHERE EXISTS
+                            (SELECT 1
+                               FROM ar_distributions_all ada,
+                                    xla_distribution_links xdl,
+                                    xla_ae_headers xah,
+                                    gl_ledgers gl,
+                                    xla_ae_lines xal,
+                                    gl_import_references gir,
+                                    gl_je_headers gjh
+                              WHERE     ada.source_id =
+                                           TO_NUMBER (p_key_value1)
+                                    AND ada.source_table = 'CRH'
+                                    AND xdl.source_distribution_type =
+                                           'AR_DISTRIBUTIONS_ALL'
+                                    AND xdl.source_distribution_id_num_1 =
+                                           ada.line_id
+                                    AND xdl.application_id = 222
+                                    AND xdl.ae_header_id = xah.ae_header_id
+                                    AND xah.ledger_id = gl.ledger_id
+                                    AND gl.name IN ('IN Primary INR',
+                                                    'IN Secondary INR')
+                                    AND xdl.ae_header_id = xal.ae_header_id
+                                    AND xdl.ae_line_num = xal.ae_line_num
+                                    AND xal.application_id = 222
+                                    AND xal.gl_sl_link_id = gir.gl_sl_link_id
+                                    AND gir.je_header_id = gjh.je_header_id
+                                    AND gjh.status = 'P'
+                                    AND gir.creation_date <=
+                                           TO_DATE (
+                                              NVL (
+                                                 TO_CHAR (
+                                                    TO_TIMESTAMP (
+                                                       p_collection_time,
+                                                       'YYYY-MM-DD HH24:MI:SS.FF6'),
+                                                    'YYYY-MM-DD HH24:MI:SS'),
+                                                 TO_CHAR (
+                                                    SYSDATE,
+                                                    'YYYY-MM-DD HH24:MI:SS')),
+                                              'YYYY-MM-DD HH24:MI:SS'));
+               END IF;
+            ELSIF (p_table_name = 'AR_ADJUSTMENTS_ALL')
+            THEN
+               -- p_key_value1 = ADJUSTMENT_ID
+               -- p_key_value2 = SET_OF_BOOKS_ID
+
+               IF p_key_value2 IN ('3043', '3047')
+               THEN
+                  SELECT COUNT (1)
+                    INTO ln_count
+                    FROM DUAL
+                   WHERE EXISTS
+                            (SELECT 1
+                               FROM ar_distributions_all dist,
+                                    xla_distribution_links xdl,
+                                    xla_ae_headers xah,
+                                    gl_ledgers gl,
+                                    xla_ae_lines xal,
+                                    gl_import_references gir,
+                                    gl_je_headers gjh
+                              WHERE     dist.source_id =
+                                           TO_NUMBER (p_key_value1)
+                                    AND dist.source_table = 'ADJ'
+                                    AND dist.line_id =
+                                           xdl.source_distribution_id_num_1
+                                    AND xdl.source_distribution_type =
+                                           'AR_DISTRIBUTIONS_ALL'
+                                    AND xdl.application_id = 222
+                                    AND xdl.ae_header_id = xah.ae_header_id
+                                    AND xah.ledger_id = gl.ledger_id
+                                    AND gl.name IN ('IN Primary INR',
+                                                    'IN Secondary INR')
+                                    AND xah.ae_header_id = xal.ae_header_id
+                                    AND xdl.ae_line_num = xal.ae_line_num
+                                    AND xal.gl_sl_link_id = gir.gl_sl_link_id
+                                    AND gir.je_header_id = gjh.je_header_id
+                                    AND gl.ledger_id = gjh.ledger_id
+                                    AND gjh.status = 'P'
+                                    AND gir.creation_date <=
+                                           TO_DATE (
+                                              NVL (
+                                                 TO_CHAR (
+                                                    TO_TIMESTAMP (
+                                                       p_collection_time,
+                                                       'YYYY-MM-DD HH24:MI:SS.FF6'),
+                                                    'YYYY-MM-DD HH24:MI:SS'),
+                                                 TO_CHAR (
+                                                    SYSDATE,
+                                                    'YYYY-MM-DD HH24:MI:SS')),
+                                              'YYYY-MM-DD HH24:MI:SS'));
+               END IF;
+            ELSIF (p_table_name = 'AR_RECEIVABLES_TRX_ALL')
+            THEN
+               -- p_key_value1 = RECEIVABLES_TRX_ID
+               -- p_key_value2 = SET_OF_BOOKS_ID
+
+               IF p_key_value2 IN ('3043', '3047')
+               THEN
+                  SELECT COUNT (1)
+                    INTO ln_count
+                    FROM DUAL
+                   WHERE (   EXISTS
+                                (SELECT 1
+                                   FROM ar_cash_receipts_all acr,
+                                        ar_misc_cash_distributions_all msd,
+                                        ar_distributions_all dist,
+                                        xla_distribution_links xdl,
+                                        xla_ae_headers xah,
+                                        gl_ledgers gl,
+                                        xla_ae_lines xal,
+                                        gl_import_references gir,
+                                        gl_je_headers gjh
+                                  WHERE     acr.receivables_trx_id =
+                                               TO_NUMBER (p_key_value1)
+                                        AND acr.TYPE = 'MISC'
+                                        AND acr.cash_receipt_id =
+                                               msd.cash_receipt_id
+                                        AND msd.misc_cash_distribution_id =
+                                               dist.source_id
+                                        AND dist.source_type = 'MISCCASH'
+                                        AND dist.line_id =
+                                               xdl.source_distribution_id_num_1
+                                        AND xdl.source_distribution_type =
+                                               'AR_DISTRIBUTIONS_ALL'
+                                        AND xdl.application_id = 222
+                                        AND xdl.ae_header_id =
+                                               xah.ae_header_id
+                                        AND xah.ledger_id = gl.ledger_id
+                                        AND gl.name IN ('IN Primary INR',
+                                                        'IN Secondary INR')
+                                        AND xah.ae_header_id =
+                                               xal.ae_header_id
+                                        AND xdl.ae_line_num = xal.ae_line_num
+                                        AND xal.gl_sl_link_id =
+                                               gir.gl_sl_link_id
+                                        AND gir.je_header_id =
+                                               gjh.je_header_id
+                                        AND gl.ledger_id = gjh.ledger_id
+                                        AND gjh.status = 'P'
+                                        AND gir.creation_date <=
+                                               TO_DATE (
+                                                  NVL (
+                                                     TO_CHAR (
+                                                        TO_TIMESTAMP (
+                                                           p_collection_time,
+                                                           'YYYY-MM-DD HH24:MI:SS.FF6'),
+                                                        'YYYY-MM-DD HH24:MI:SS'),
+                                                     TO_CHAR (
+                                                        SYSDATE,
+                                                        'YYYY-MM-DD HH24:MI:SS')),
+                                                  'YYYY-MM-DD HH24:MI:SS')
+                                        AND ROWNUM = 1)
+                          OR EXISTS
+                                (SELECT 1
+                                   FROM ar_adjustments_all apa,
+                                        ar_distributions_all dist,
+                                        xla_distribution_links xdl,
+                                        xla_ae_headers xah,
+                                        gl_ledgers gl,
+                                        xla_ae_lines xal,
+                                        gl_import_references gir,
+                                        gl_je_headers gjh
+                                  WHERE     apa.receivables_trx_id =
+                                               TO_NUMBER (p_key_value1)
+                                        AND apa.adjustment_id =
+                                               dist.source_id
+                                        AND dist.source_type = 'ADJ'
+                                        AND dist.line_id =
+                                               xdl.source_distribution_id_num_1
+                                        AND xdl.source_distribution_type =
+                                               'AR_DISTRIBUTIONS_ALL'
+                                        AND xdl.application_id = 222
+                                        AND xdl.ae_header_id =
+                                               xah.ae_header_id
+                                        AND xah.ledger_id = gl.ledger_id
+                                        AND gl.name IN ('IN Primary INR',
+                                                        'IN Secondary INR')
+                                        AND xah.ae_header_id =
+                                               xal.ae_header_id
+                                        AND xdl.ae_line_num = xal.ae_line_num
+                                        AND xal.gl_sl_link_id =
+                                               gir.gl_sl_link_id
+                                        AND gir.je_header_id =
+                                               gjh.je_header_id
+                                        AND gl.ledger_id = gjh.ledger_id
+                                        AND gjh.status = 'P'
+                                        AND gir.creation_date <=
+                                               TO_DATE (
+                                                  NVL (
+                                                     TO_CHAR (
+                                                        TO_TIMESTAMP (
+                                                           p_collection_time,
+                                                           'YYYY-MM-DD HH24:MI:SS.FF6'),
+                                                        'YYYY-MM-DD HH24:MI:SS'),
+                                                     TO_CHAR (
+                                                        SYSDATE,
+                                                        'YYYY-MM-DD HH24:MI:SS')),
+                                                  'YYYY-MM-DD HH24:MI:SS')
+                                        AND ROWNUM = 1));
+               END IF;
+            ELSIF (p_table_name = 'AR_SYSTEM_PARAMETERS_ALL') --Added by Aditya R CRQ CHG0240476
+            THEN
+               -- p_key_value1 = ORG_ID
+               -- Checking whether its belong to India org or not
+
+               ln_count := is_ind_org (p_key_value1, NULL);
+
+               IF ln_count > 0
+               THEN
+                  ln_count := 1;
+               END IF;
+            ELSIF (p_table_name = 'AR_DISTRIBUTIONS_ALL')
+            THEN
+               -- p_key_value1 = LINE_ID
+               -- p_key_value2 = ORG_ID
+               -- Checking whether its belong to India org or not
+
+               ln_count := is_ind_org (p_key_value2, NULL);
+
+               IF ln_count > 0
+               THEN
+                  SELECT COUNT (1)
+                    INTO ln_count
+                    FROM DUAL
+                   WHERE EXISTS
+                            (SELECT 1
+                               FROM xla_distribution_links xdl,
+                                    xla_ae_headers xah,
+                                    gl_ledgers gl,
+                                    xla_ae_lines xal,
+                                    gl_import_references gir,
+                                    gl_je_headers gjh
+                              WHERE     xdl.source_distribution_id_num_1 =
+                                           TO_NUMBER (p_key_value1) -- LINE_ID is pk1
+                                    AND xdl.source_distribution_type =
+                                           'AR_DISTRIBUTIONS_ALL'
+                                    AND xdl.application_id = 222
+                                    AND xdl.ae_header_id = xah.ae_header_id
+                                    AND xah.ledger_id = gl.ledger_id
+                                    AND gl.name IN ('IN Primary INR',
+                                                    'IN Secondary INR')
+                                    AND xah.ae_header_id = xal.ae_header_id
+                                    AND xdl.ae_line_num = xal.ae_line_num
+                                    AND xal.gl_sl_link_id = gir.gl_sl_link_id
+                                    AND gir.je_header_id = gjh.je_header_id
+                                    AND gl.ledger_id = gjh.ledger_id
+                                    AND gjh.status = 'P'
+                                    AND gir.creation_date <=
+                                           TO_DATE (
+                                              NVL (
+                                                 TO_CHAR (
+                                                    TO_TIMESTAMP (
+                                                       p_collection_time,
+                                                       'YYYY-MM-DD HH24:MI:SS.FF6'),
+                                                    'YYYY-MM-DD HH24:MI:SS'),
+                                                 TO_CHAR (
+                                                    SYSDATE,
+                                                    'YYYY-MM-DD HH24:MI:SS')),
+                                              'YYYY-MM-DD HH24:MI:SS'));
+               END IF;
+            /*  -- Removed
+            ELSIF (p_table_name = 'HZ_LOCATIONS')
+            THEN
+                -- p_key_value1 = LOCATION_ID
+
+                SELECT COUNT(1) INTO ln_count
+                  FROM DUAL
+                 WHERE EXISTS
+                    (
+                         SELECT 1
+                           FROM hz_party_sites hps
+                              , hz_cust_acct_sites_all hcas
+                              , hr_operating_units hou
+                              , gl_ledgers gl
+                          WHERE hps.location_id = TO_NUMBER(p_key_value1)
+                            AND hps.party_site_id = hcas.party_site_id
+                            AND hcas.org_id = hou.organization_id
+                            AND hou.set_of_books_id = gl.ledger_id
+                            AND gl.name IN ('IN Primary INR', 'IN Secondary INR')
+                    );
+                    */
+
+            /*
+            ELSIF (p_table_name = 'HZ_PARTIES')
+            THEN
+                -- p_key_value1 = PARTY_ID
+
+                SELECT COUNT(1) INTO ln_count
+                  FROM DUAL
+                 WHERE EXISTS
+                    (
+                        SELECT 1
+                          FROM hz_parties hp
+                             ,hz_cust_accounts hca
+                             ,hz_party_sites hzp
+                             ,hz_cust_acct_sites_all hcas
+                             ,hr_operating_units hou
+                             ,gl_ledgers gl
+                        WHERE hp.party_id   = TO_NUMBER(p_key_value1)
+                          AND hp.party_type = 'ORGANIZATION'
+                          AND hp.party_id = hca.party_id
+                          AND hp.party_id = hzp.party_id
+                          AND hca.cust_account_id = hcas.cust_account_id
+                          AND hzp.party_site_id = hcas.party_site_id
+                          AND hcas.org_id = hou.organization_id
+                          AND hou.set_of_books_id = gl.ledger_id
+                          AND gl.name IN ('IN Primary INR', 'IN Secondary INR')
+                        UNION
+                        SELECT 1
+                          FROM hz_parties hp
+                              ,hz_relationships hrel
+                              ,hz_cust_accounts hca
+                              ,hz_cust_acct_sites_all hcas
+                              ,hr_operating_units hou
+                              ,gl_ledgers gl
+                         WHERE hp.party_id   = TO_NUMBER(p_key_value1)
+                           AND hp.party_type = 'PERSON'
+                           AND hrel.object_id = hp.party_id
+                           AND hrel.object_type = 'PERSON'
+                           AND hrel.subject_id = hca.party_id
+                           AND hrel.object_id = hp.party_id
+                           AND hca.cust_account_id = hcas.cust_account_id
+                           AND hcas.org_id = hou.organization_id
+                           AND hou.set_of_books_id = gl.ledger_id
+                           AND gl.name IN ('IN Primary INR', 'IN Secondary INR')
+                        UNION
+                        SELECT 1
+                          FROM hz_parties hp
+                              ,hz_relationships hrel
+                              ,hz_cust_accounts hca
+                              ,hz_cust_acct_sites_all hcas
+                              ,hr_operating_units hou
+                              ,gl_ledgers gl
+                         WHERE hp.party_id = TO_NUMBER(p_key_value1)
+                           AND hp.party_type = 'PARTY_RELATIONSHIP'
+                           AND hrel.party_id = hp.party_id
+                           AND hrel.object_type = 'PERSON'
+                           AND hrel.subject_id = hca.party_id
+                           AND hca.cust_account_id = hcas.cust_account_id
+                           AND hcas.org_id = hou.organization_id
+                           AND hou.set_of_books_id = gl.ledger_id
+                           AND gl.name IN ('IN Primary INR', 'IN Secondary INR')
+                    );
+                    */
+            /*   -- Removed
+            ELSIF (p_table_name = 'HZ_PARTY_SITES')
+            THEN
+                -- p_key_value1 = PARTY_SITE_ID
+
+                SELECT COUNT(1) INTO ln_count
+                  FROM DUAL
+                 WHERE EXISTS
+                    (
+                        SELECT 1
+                          FROM hz_cust_acct_sites_all hcas
+                              ,hr_operating_units hou
+                              ,gl_ledgers gl
+                        WHERE hcas.party_site_id = TO_NUMBER(p_key_value1)
+                          AND hcas.org_id = hou.organization_id
+                          AND hou.set_of_books_id = gl.ledger_id
+                          AND gl.name IN ('IN Primary INR', 'IN Secondary INR')
+                    );
+                    */
+            /*
+            ELSIF (p_table_name = 'HZ_PARTY_SITE_USES')
+            THEN
+                -- p_key_value1 = PARTY_SITE_USE_ID
+
+                 SELECT COUNT(1) INTO ln_count
+                  FROM DUAL
+                 WHERE EXISTS
+                    (
+                        SELECT 1
+                          FROM hz_party_site_uses hps
+                             , hz_cust_acct_sites_all hcas
+                             , hr_operating_units hou
+                             , gl_ledgers gl
+                        WHERE party_site_use_id = TO_NUMBER(p_key_value1)
+                          AND hcas.party_site_id = hps.party_site_id
+                          AND hcas.org_id = hou.organization_id
+                          AND hou.set_of_books_id = gl.ledger_id
+                          AND gl.name IN ('IN Primary INR', 'IN Secondary INR')
+                    );
+                    */
+
+            ELSIF p_table_name = 'HZ_CUST_ACCOUNTS'
+            THEN
+               -- p_key_value1 = CUST_ACCOUNT_ID
+
+               SELECT COUNT (1)
+                 INTO ln_count
+                 FROM DUAL
+                WHERE EXISTS
+                         (SELECT 1
+                            FROM hz_cust_acct_sites_all hcas,
+                                 hr_operating_units hou,
+                                 gl_ledgers gl
+                           WHERE     hcas.cust_account_id =
+                                        TO_NUMBER (p_key_value1)
+                                 AND hcas.org_id = hou.organization_id
+                                 AND hou.set_of_books_id = gl.ledger_id
+                                 AND gl.name IN ('IN Primary INR',
+                                                 'IN Secondary INR'));
+            ELSIF p_table_name = 'HZ_CUST_ACCT_SITES_ALL'
+            THEN
+               -- p_key_value1 = CUST_ACCT_SITE_ID
+               -- p_key_value2 = ORG_ID
+               -- checking whether its belong to India org or not
+
+               ln_count := is_ind_org (p_key_value2, NULL);
+
+               IF ln_count > 0
+               THEN
+                  SELECT COUNT (1)
+                    INTO ln_count
+                    FROM DUAL
+                   WHERE EXISTS
+                            (SELECT 1
+                               FROM hz_cust_acct_sites_all hcas,
+                                    hr_operating_units hou,
+                                    gl_ledgers gl
+                              WHERE     hcas.cust_acct_site_id =
+                                           TO_NUMBER (p_key_value1)
+                                    AND hcas.org_id = hou.organization_id
+                                    AND hou.set_of_books_id = gl.ledger_id
+                                    AND gl.name IN ('IN Primary INR',
+                                                    'IN Secondary INR'));
+               END IF;
+            ELSIF (p_table_name = 'HZ_CUST_SITE_USES_ALL')
+            THEN
+               -- p_key_value1 = SITE_USE_ID
+               -- p_key_value2 = ORG_ID
+               -- checking whether its belong to India org or not
+
+               ln_count := is_ind_org (p_key_value2, NULL);
+
+               IF ln_count > 0
+               THEN
+                  SELECT COUNT (1)
+                    INTO ln_count
+                    FROM DUAL
+                   WHERE EXISTS
+                            (SELECT 1
+                               FROM hz_cust_site_uses_all hcsu,
+                                    hr_operating_units hou,
+                                    gl_ledgers gl
+                              WHERE     hcsu.site_use_id =
+                                           TO_NUMBER (p_key_value1)
+                                    AND hou.organization_id = hcsu.org_id
+                                    AND hou.set_of_books_id = gl.ledger_id
+                                    AND gl.name IN ('IN Primary INR',
+                                                    'IN Secondary INR'));
+               END IF;
+            /*
+            ELSIF (p_table_name = 'HZ_CUSTOMER_PROFILES')
+             THEN
+                  -- p_key_value1 = CUST_ACCOUNT_PROFILE_ID
+
+                 SELECT COUNT(1) INTO ln_count
+                   FROM DUAL
+                 WHERE EXISTS
+                     (
+                         SELECT 1
+                           FROM hz_customer_profiles hcp
+                               ,hz_cust_acct_sites_all hcas
+                               ,hr_operating_units hou
+                               ,gl_ledgers gl
+                         WHERE hcp.cust_account_profile_id = TO_NUMBER(p_key_value1)
+                           AND hcas.cust_account_id = hcp.cust_account_id
+                           AND hcas.org_id = hou.organization_id
+                           AND hou.set_of_books_id = gl.ledger_id
+                           AND gl.name IN ('IN Primary INR', 'IN Secondary INR')
+                      );
+                      */
+
+            ELSIF (p_table_name = 'HZ_CUST_PROFILE_AMTS')
+            THEN
+               -- p_key_value1 = CUST_ACCOUNT_PROFILE_ID
+
+               SELECT COUNT (1)
+                 INTO ln_count
+                 FROM DUAL
+                WHERE EXISTS
+                         (SELECT 1
+                            FROM hz_cust_profile_amts hcpa,
+                                 hz_customer_profiles hcp,
+                                 hz_cust_acct_sites_all hcas,
+                                 hr_operating_units hou,
+                                 gl_ledgers gl
+                           WHERE     hcpa.cust_acct_profile_amt_id =
+                                        TO_NUMBER (p_key_value1)
+                                 AND hcp.cust_account_profile_id =
+                                        hcpa.cust_account_profile_id
+                                 AND hcp.cust_account_id =
+                                        hcas.cust_account_id
+                                 AND hcas.org_id = hou.organization_id
+                                 AND hou.set_of_books_id = gl.ledger_id
+                                 AND gl.name IN ('IN Primary INR',
+                                                 'IN Secondary INR'));
+            /*  --Removed
+            ELSIF (p_table_name = 'HZ_ORG_CONTACTS')
+            THEN
+                -- p_key_value1 = ORG_CONTACT_ID
+
+                 SELECT COUNT(1) INTO ln_count
+                   FROM DUAL
+                  WHERE EXISTS
+                    (
+                        SELECT 1
+                          FROM hz_org_contacts hoc
+                              ,hz_relationships hrel
+                              ,hz_cust_accounts hca
+                              ,hz_cust_acct_sites_all hcas
+                              ,hr_operating_units hou
+                              ,gl_ledgers gl
+                         WHERE hoc.org_contact_id = TO_NUMBER(p_key_value1)
+                           AND hrel.relationship_id = hoc.party_relationship_id
+                           AND hrel.object_type = 'PERSON'
+                           AND hrel.subject_id = hca.party_id
+                           AND hca.cust_account_id = hcas.cust_account_id
+                           AND hcas.org_id = hou.organization_id
+                           AND hou.set_of_books_id = gl.ledger_id
+                           AND gl.name IN ('IN Primary INR', 'IN Secondary INR')
+                    );
+                    */
+            /*  -- Removed
+            ELSIF (p_table_name = 'HZ_CUST_ACCOUNT_ROLES')
+            THEN
+                -- p_key_value1 = CUST_ACCOUNT_ROLE_ID
+
+                SELECT COUNT(1) INTO ln_count
+                  FROM DUAL
+                 WHERE EXISTS
+                    (
+                        SELECT 1
+                          FROM hz_cust_account_roles hcar
+                              ,hz_cust_acct_sites_all hcas
+                              ,hr_operating_units hou
+                              ,gl_ledgers gl
+                         WHERE hcar.cust_account_role_id = TO_NUMBER(p_key_value1)
+                           AND hcas.cust_account_id = hcar.cust_account_id
+                           AND hcas.org_id = hou.organization_id
+                           AND hou.set_of_books_id = gl.ledger_id
+                           AND gl.name IN ('IN Primary INR', 'IN Secondary INR')
+                    );
+               */
+
+            /*  --Removed
+            ELSIF (p_table_name = 'HZ_ROLE_RESPONSIBILITY')
+            THEN
+                -- p_key_value1 = CUST_ACCOUNT_ROLE_ID
+
+                SELECT COUNT(1) INTO ln_count
+                  FROM DUAL
+                 WHERE EXISTS
+                    (
+                        SELECT 1
+                          FROM hz_cust_account_roles hcar
+                              ,hz_cust_acct_sites_all hcas
+                              ,hr_operating_units hou
+                              ,gl_ledgers gl
+                         WHERE hcar.cust_account_role_id = TO_NUMBER(p_key_value1)
+                           AND hcas.cust_account_id = hcar.cust_account_id
+                           AND hcas.org_id = hou.organization_id
+                           AND hou.set_of_books_id = gl.ledger_id
+                           AND gl.name IN ('IN Primary INR', 'IN Secondary INR')
+                    );
+                    */
+            /*  -- Removed as per Auditors decision
+            ELSIF (p_table_name = 'HZ_CONTACT_POINTS')
+            THEN
+                -- p_key_value1 = contact_point_id
+
+                SELECT COUNT(1) INTO ln_count
+                  FROM DUAL
+                 WHERE EXISTS
+                    (
+                        SELECT 1
+                          FROM hz_contact_points hcp
+                              ,hz_parties hp
+                              ,hz_cust_accounts hca
+                              ,hz_party_sites hzp
+                              ,hz_cust_acct_sites_all hcas
+                              ,hr_operating_units hou
+                              ,gl_ledgers gl
+                        WHERE  hcp.contact_point_id = p_key_value1 -- contact_point_id is pk1
+                          AND hp.party_id = hcp.owner_table_id
+                          AND hcp.owner_table_name = 'HZ_PARTIES'
+                          AND hp.party_type = 'ORGANIZATION'
+                          AND hp.party_id = hca.party_id
+                          AND hp.party_id = hzp.party_id
+                          AND hca.cust_account_id = hcas.cust_account_id
+                          AND hzp.party_site_id = hcas.party_site_id
+                          AND hcas.org_id = hou.organization_id
+                          AND hou.set_of_books_id = gl.ledger_id
+                          AND gl.name IN ('IN Primary INR', 'IN Secondary INR')
+                        UNION
+                        SELECT 1
+                          FROM hz_contact_points hcp
+                              ,hz_parties hp
+                              ,hz_relationships hrel
+                              ,hz_cust_accounts hca
+                              ,hz_cust_acct_sites_all hcas
+                              ,hr_operating_units hou
+                              ,gl_ledgers gl
+                         WHERE hcp.contact_point_id = p_key_value1 -- contact_point_id is pk1
+                           AND hp.party_id = hcp.owner_table_id
+                           AND hcp.owner_table_name = 'HZ_PARTIES'
+                           AND hp.party_type = 'PERSON'
+                           AND hrel.object_id = hp.party_id
+                           AND hrel.object_type = 'PERSON'
+                           AND hrel.subject_id = hca.party_id
+                           AND hrel.object_id = hp.party_id
+                           AND hca.cust_account_id = hcas.cust_account_id
+                           AND hcas.org_id = hou.organization_id
+                           AND hou.set_of_books_id = gl.ledger_id
+                           AND gl.name IN ('IN Primary INR', 'IN Secondary INR')
+                        UNION
+                        SELECT 1
+                          FROM hz_contact_points hcp
+                              ,hz_parties hp
+                              ,hz_relationships hrel
+                              ,hz_cust_accounts hca
+                              ,hz_cust_acct_sites_all hcas
+                              ,hr_operating_units hou
+                              ,gl_ledgers gl
+                         WHERE hcp.contact_point_id = p_key_value1 -- contact_point_id is pk1
+                           AND hp.party_id = hcp.owner_table_id
+                           AND hcp.owner_table_name = 'HZ_PARTIES'
+                           AND hp.party_type = 'PARTY_RELATIONSHIP'
+                           AND hrel.party_id = hp.party_id
+                           AND hrel.object_type = 'PERSON'
+                           AND hrel.subject_id = hca.party_id
+                           AND hca.cust_account_id = hcas.cust_account_id
+                           AND hcas.org_id = hou.organization_id
+                           AND hou.set_of_books_id = gl.ledger_id
+                           AND gl.name IN ('IN Primary INR', 'IN Secondary INR')
+                        );
+                        */
+
+            ELSIF (p_table_name = 'AP_SUPPLIERS')
+            THEN
+               -- p_key_value1 = VENDOR_ID
+
+               SELECT COUNT (1)
+                 INTO ln_count
+                 FROM DUAL
+                WHERE EXISTS
+                         (SELECT 1
+                            FROM ap_supplier_sites_all apsa,
+                                 hr_operating_units hou,
+                                 gl_ledgers gl
+                           WHERE     apsa.vendor_id =
+                                        TO_NUMBER (p_key_value1)
+                                 AND apsa.org_id = hou.organization_id
+                                 AND hou.set_of_books_id = gl.ledger_id
+                                 AND gl.name IN ('IN Primary INR',
+                                                 'IN Secondary INR'));
+            ELSIF (p_table_name = 'AP_SUPPLIER_SITES_ALL')
+            THEN
+               -- p_key_value1 = VENDOR_SITE_ID
+               -- p_key_value2 = ORG_ID
+               -- checking whether its belong to India org or not
+
+               ln_count := is_ind_org (p_key_value2, NULL);
+
+               IF ln_count > 0
+               THEN
+                  SELECT COUNT (1)
+                    INTO ln_count
+                    FROM DUAL
+                   WHERE EXISTS
+                            (SELECT 1
+                               FROM ap_supplier_sites_all apsa,
+                                    hr_operating_units hou,
+                                    gl_ledgers gl
+                              WHERE     apsa.vendor_site_id =
+                                           TO_NUMBER (p_key_value1)
+                                    AND hou.organization_id = apsa.org_id
+                                    AND hou.set_of_books_id = gl.ledger_id
+                                    AND gl.name IN ('IN Primary INR',
+                                                    'IN Secondary INR'));
+               END IF;
+            ELSIF (p_table_name = 'AP_SYSTEM_PARAMETERS_ALL') -- Added by Aditya R 6-Jun-2025  CRQ CHG0240476
+            THEN
+               -- p_key_value1 = ORG_ID
+               -- Checking whether its belong to India org or not
+
+               ln_count := is_ind_org (p_key_value1, NULL);
+
+               IF ln_count > 0
+               THEN
+                  ln_count := 1;
+               END IF;
+            ELSIF p_table_name = 'AP_PAYMENT_SCHEDULES_ALL' -- Added by Aditya R 6-Jun-2025  CRQ CHG0240476
+            THEN
+               -- p_key_value1 = INVOICE_ID
+               -- p_key_value2 = PAYMENT_NUM
+               -- p_key_value3 = ORG_ID
+
+               ln_count := is_ind_org (p_key_value3, NULL);
+
+               IF ln_count > 0
+               THEN
+                  SELECT COUNT (1)
+                    INTO ln_count
+                    FROM DUAL
+                   WHERE EXISTS
+                            (SELECT 1
+                               FROM apps.ap_invoice_payments_all aipa,
+                                    apps.xla_events xe,
+                                    apps.xla_ae_headers xah,
+                                    apps.xla_ae_lines xal,
+                                    apps.gl_import_references gir,
+                                    apps.gl_je_headers gjh
+                              WHERE     aipa.invoice_id = p_key_value1 -- o1 = invoice_id
+                                    AND aipa.payment_num =
+                                           NVL (p_key_value2,
+                                                aipa.payment_num) -- payment_num
+                                    AND aipa.accounting_event_id =
+                                           xe.event_id
+                                    AND xe.event_status_code = 'P'
+                                    AND xe.process_status_code = 'P'
+                                    AND xah.gl_transfer_status_code = 'Y'
+                                    AND xah.accounting_entry_status_code =
+                                           'F'
+                                    AND xe.entity_id = xah.entity_id
+                                    AND xah.ae_header_id = xal.ae_header_id
+                                    AND xal.gl_sl_link_id = gir.gl_sl_link_id
+                                    AND gir.je_header_id = gjh.je_header_id
+                                    AND gjh.status = 'P'
+                                    AND xal.creation_date <=
+                                           TO_DATE (
+                                              NVL (
+                                                 TO_CHAR (
+                                                    TO_TIMESTAMP (
+                                                       p_collection_time,
+                                                       'YYYY-MM-DD HH24:MI:SS.FF6'),
+                                                    'YYYY-MM-DD HH24:MI:SS'),
+                                                 TO_CHAR (
+                                                    SYSDATE,
+                                                    'YYYY-MM-DD HH24:MI:SS')),
+                                              'YYYY-MM-DD HH24:MI:SS') -- Modified by UG039
+                                                                      );
+               END IF;
+            ELSIF (p_table_name = 'AP_INVOICES_ALL')
+            THEN
+               -- p_key_value1 = INVOICE_ID
+               -- p_key_value2 = SET_OF_BOOKS_ID
+
+               IF p_key_value2 IN ('3043', '3047')
+               THEN
+                  SELECT COUNT (1)
+                    INTO ln_count
+                    FROM DUAL
+                   WHERE EXISTS
+                            (SELECT 1
+                               FROM ap_invoice_distributions_all aida,
+                                    xla_distribution_links xdl,
+                                    xla_ae_headers xah,
+                                    gl_ledgers gl,
+                                    xla_ae_lines xal,
+                                    gl_import_references gir,
+                                    gl_je_headers gje
+                              WHERE     aida.invoice_id =
+                                           TO_NUMBER (p_key_value1)
+                                    AND xdl.source_distribution_type =
+                                           'AP_INV_DIST'
+                                    AND xdl.source_distribution_id_num_1 =
+                                           aida.invoice_distribution_id
+                                    AND xdl.application_id = 200
+                                    AND xdl.ae_header_id = xah.ae_header_id
+                                    AND xah.ledger_id = gl.ledger_id
+                                    AND gl.name IN ('IN Primary INR',
+                                                    'IN Secondary INR')
+                                    AND xdl.ae_header_id = xal.ae_header_id
+                                    AND xdl.ae_line_num = xal.ae_line_num
+                                    AND xal.application_id = 200
+                                    AND xal.gl_sl_link_id = gir.gl_sl_link_id
+                                    AND gir.gl_sl_link_table = 'XLAJEL'
+                                    AND gir.je_header_id = gje.je_header_id
+                                    AND gje.ledger_id = gl.ledger_id
+                                    AND gje.status = 'P'
+                                    AND gir.creation_date <=
+                                           TO_DATE (
+                                              NVL (
+                                                 TO_CHAR (
+                                                    TO_TIMESTAMP (
+                                                       p_collection_time,
+                                                       'YYYY-MM-DD HH24:MI:SS.FF6'),
+                                                    'YYYY-MM-DD HH24:MI:SS'),
+                                                 TO_CHAR (
+                                                    SYSDATE,
+                                                    'YYYY-MM-DD HH24:MI:SS')),
+                                              'YYYY-MM-DD HH24:MI:SS'));
+               END IF;
+            ELSIF (p_table_name = 'AP_INVOICE_LINES_ALL')
+            THEN
+               -- p_key_value1 = INVOICE_ID
+               -- p_key_value2 = LINE_NUMBER
+               -- p_key_value3 = SET_OF_BOOKS_ID
+
+               IF p_key_value3 IN ('3043', '3047')
+               THEN
+                  SELECT COUNT (1)
+                    INTO ln_count
+                    FROM DUAL
+                   WHERE EXISTS
+                            (SELECT 1
+                               FROM ap_invoice_distributions_all aida,
+                                    xla_distribution_links xdl,
+                                    xla_ae_headers xah,
+                                    gl_ledgers gl,
+                                    xla_ae_lines xal,
+                                    gl_import_references gir,
+                                    gl_je_headers gje
+                              WHERE     aida.invoice_id =
+                                           TO_NUMBER (p_key_value1)
+                                    AND aida.invoice_line_number =
+                                           TO_NUMBER (p_key_value2)
+                                    AND xdl.source_distribution_type =
+                                           'AP_INV_DIST'
+                                    AND xdl.source_distribution_id_num_1 =
+                                           aida.invoice_distribution_id
+                                    AND xdl.application_id = 200
+                                    AND xdl.ae_header_id = xah.ae_header_id
+                                    AND xah.ledger_id = gl.ledger_id
+                                    AND gl.name IN ('IN Primary INR',
+                                                    'IN Secondary INR')
+                                    AND xdl.ae_header_id = xal.ae_header_id
+                                    AND xdl.ae_line_num = xal.ae_line_num
+                                    AND xal.application_id = 200
+                                    AND xal.gl_sl_link_id = gir.gl_sl_link_id
+                                    AND gir.gl_sl_link_table = 'XLAJEL'
+                                    AND gir.je_header_id = gje.je_header_id
+                                    AND gje.ledger_id = gl.ledger_id
+                                    AND gje.status = 'P'
+                                    AND gir.creation_date <=
+                                           TO_DATE (
+                                              NVL (
+                                                 TO_CHAR (
+                                                    TO_TIMESTAMP (
+                                                       p_collection_time,
+                                                       'YYYY-MM-DD HH24:MI:SS.FF6'),
+                                                    'YYYY-MM-DD HH24:MI:SS'),
+                                                 TO_CHAR (
+                                                    SYSDATE,
+                                                    'YYYY-MM-DD HH24:MI:SS')),
+                                              'YYYY-MM-DD HH24:MI:SS'));
+               END IF;
+            ELSIF (p_table_name = 'AP_INVOICE_DISTRIBUTIONS_ALL')
+            THEN
+               -- p_key_value1 = INVOICE_DISTRIBUTION_ID
+               -- p_key_value2 = SET_OF_BOOKS_ID
+
+               IF p_key_value2 IN ('3043', '3047')
+               THEN
+                  SELECT COUNT (1)
+                    INTO ln_count
+                    FROM DUAL
+                   WHERE EXISTS
+                            (SELECT 1
+                               FROM xla_distribution_links xdl,
+                                    xla_ae_headers xah,
+                                    gl_ledgers gl,
+                                    xla_ae_lines xal,
+                                    gl_import_references gir,
+                                    gl_je_headers gje
+                              WHERE     xdl.source_distribution_type =
+                                           'AP_INV_DIST'
+                                    AND xdl.source_distribution_id_num_1 =
+                                           TO_NUMBER (p_key_value1)
+                                    AND xdl.application_id = 200
+                                    AND xdl.ae_header_id = xah.ae_header_id
+                                    AND xah.ledger_id = gl.ledger_id
+                                    AND gl.name IN ('IN Primary INR',
+                                                    'IN Secondary INR')
+                                    AND xdl.ae_header_id = xal.ae_header_id
+                                    AND xdl.ae_line_num = xal.ae_line_num
+                                    AND xal.application_id = 200
+                                    AND xal.gl_sl_link_id = gir.gl_sl_link_id
+                                    AND gir.gl_sl_link_table = 'XLAJEL'
+                                    AND gir.je_header_id = gje.je_header_id
+                                    AND gje.ledger_id = gl.ledger_id
+                                    AND gje.status = 'P'
+                                    AND gir.creation_date <=
+                                           TO_DATE (
+                                              NVL (
+                                                 TO_CHAR (
+                                                    TO_TIMESTAMP (
+                                                       p_collection_time,
+                                                       'YYYY-MM-DD HH24:MI:SS.FF6'),
+                                                    'YYYY-MM-DD HH24:MI:SS'),
+                                                 TO_CHAR (
+                                                    SYSDATE,
+                                                    'YYYY-MM-DD HH24:MI:SS')),
+                                              'YYYY-MM-DD HH24:MI:SS'));
+               END IF;
+            ELSIF (p_table_name = 'AP_INVOICE_PAYMENTS_ALL')
+            THEN
+               -- p_key_value1 = INVOICE_PAYMENT_ID
+               -- p_key_value2 = SET_OF_BOOKS_ID
+
+               IF p_key_value2 IN ('3043', '3047')
+               THEN
+                  SELECT COUNT (1)
+                    INTO ln_count
+                    FROM DUAL
+                   WHERE EXISTS
+                            (SELECT 1
+                               FROM ap_invoice_payments_all aips,
+                                    ap_payment_history_all apha,
+                                    ap_payment_hist_dists aphd,
+                                    xla_distribution_links xdl,
+                                    xla_ae_headers xah,
+                                    xla_ae_lines xal,
+                                    gl_ledgers gl,
+                                    gl_import_references gir,
+                                    gl_je_headers gjh
+                              WHERE     aips.invoice_payment_id =
+                                           TO_NUMBER (p_key_value1)
+                                    AND aips.check_id = apha.check_id
+                                    AND apha.payment_history_id =
+                                           aphd.payment_history_id
+                                    AND aphd.payment_hist_dist_id =
+                                           xdl.source_distribution_id_num_1
+                                    AND xdl.source_distribution_type =
+                                           'AP_PMT_DIST'
+                                    AND xdl.application_id = 200
+                                    AND xdl.ae_header_id = xah.ae_header_id
+                                    AND xdl.ae_header_id = xal.ae_header_id
+                                    AND xah.ledger_id = gl.ledger_id
+                                    AND gl.name IN ('IN Primary INR',
+                                                    'IN Secondary INR')
+                                    AND xal.gl_sl_link_id = gir.gl_sl_link_id
+                                    AND gir.je_header_id = gjh.je_header_id
+                                    AND gjh.status = 'P'
+                                    AND gir.creation_date <=
+                                           TO_DATE (
+                                              NVL (
+                                                 TO_CHAR (
+                                                    TO_TIMESTAMP (
+                                                       p_collection_time,
+                                                       'YYYY-MM-DD HH24:MI:SS.FF6'),
+                                                    'YYYY-MM-DD HH24:MI:SS'),
+                                                 TO_CHAR (
+                                                    SYSDATE,
+                                                    'YYYY-MM-DD HH24:MI:SS')),
+                                              'YYYY-MM-DD HH24:MI:SS'));
+               END IF;
+            ELSIF (p_table_name = 'AP_CHECKS_ALL')
+            THEN
+               -- p_key_value1 = CHECK_ID
+               -- p_key_value2 = ORG_ID
+               -- Checking whether its belong to India org or not
+
+               ln_count := is_ind_org (p_key_value2, NULL);
+
+               IF ln_count > 0
+               THEN
+                  SELECT COUNT (1)
+                    INTO ln_count
+                    FROM DUAL
+                   WHERE EXISTS
+                            (SELECT 1
+                               FROM ap_payment_history_all apha,
+                                    ap_payment_hist_dists aphd,
+                                    xla_distribution_links xdl,
+                                    xla_ae_headers xah,
+                                    xla_ae_lines xal,
+                                    gl_ledgers gl,
+                                    gl_import_references gir,
+                                    gl_je_headers gjh
+                              WHERE     apha.check_id =
+                                           TO_NUMBER (p_key_value1)
+                                    AND apha.payment_history_id =
+                                           aphd.payment_history_id
+                                    AND aphd.payment_hist_dist_id =
+                                           xdl.source_distribution_id_num_1
+                                    AND xdl.source_distribution_type =
+                                           'AP_PMT_DIST'
+                                    AND xdl.application_id = 200
+                                    AND xdl.ae_header_id = xah.ae_header_id
+                                    AND xdl.ae_header_id = xal.ae_header_id
+                                    AND xah.ledger_id = gl.ledger_id
+                                    AND gl.name IN ('IN Primary INR',
+                                                    'IN Secondary INR')
+                                    -- AND gl.name IN ('IN Primary INR', 'IN Secondary INR')
+                                    AND xal.gl_sl_link_id = gir.gl_sl_link_id
+                                    AND gir.je_header_id = gjh.je_header_id
+                                    AND gjh.status = 'P'
+                                    AND gir.creation_date <=
+                                           TO_DATE (
+                                              NVL (
+                                                 TO_CHAR (
+                                                    TO_TIMESTAMP (
+                                                       p_collection_time,
+                                                       'YYYY-MM-DD HH24:MI:SS.FF6'),
+                                                    'YYYY-MM-DD HH24:MI:SS'),
+                                                 TO_CHAR (
+                                                    SYSDATE,
+                                                    'YYYY-MM-DD HH24:MI:SS')),
+                                              'YYYY-MM-DD HH24:MI:SS'));
+               END IF;
+            ELSIF (p_table_name = 'AP_PAYMENT_HISTORY_ALL')
+            THEN
+               -- p_key_value1 = PAYMENT_HISTORY_ID
+               -- p_key_value2 = ORG_ID
+               --p_key_value3 = CHECK_ID
+               -- checking whether its belong to India org or not
+
+               ln_count := is_ind_org (p_key_value2, NULL);
+
+               IF ln_count > 0
+               THEN
+                  SELECT COUNT (1)
+                    INTO ln_count
+                    FROM DUAL
+                   WHERE EXISTS
+                            (SELECT 1
+                               FROM ap_payment_hist_dists aphd,
+                                    ap_payment_history_all apha,
+                                    ap_invoice_payments_all AIPS,
+                                    xla_distribution_links xdl,
+                                    xla_ae_headers xah,
+                                    xla_ae_lines xal,
+                                    gl_ledgers gl,
+                                    gl_import_references gir,
+                                    gl_je_headers gjh
+                              WHERE     aphd.payment_history_id =
+                                           TO_NUMBER (p_key_value1)
+                                    AND aips.invoice_payment_id =
+                                           TO_NUMBER (p_key_value3)
+                                    AND aips.check_id = apha.check_id
+                                    AND apha.payment_history_id =
+                                           aphd.payment_history_id
+                                    AND aphd.payment_hist_dist_id =
+                                           xdl.source_distribution_id_num_1
+                                    AND xdl.source_distribution_type =
+                                           'AP_PMT_DIST'
+                                    AND xdl.application_id = 200
+                                    AND xdl.ae_header_id = xah.ae_header_id
+                                    AND xdl.ae_header_id = xal.ae_header_id
+                                    AND xah.ledger_id = gl.ledger_id
+                                    AND gl.name IN ('IN Primary INR',
+                                                    'IN Secondary INR')
+                                    AND xal.gl_sl_link_id = gir.gl_sl_link_id
+                                    AND gir.je_header_id = gjh.je_header_id
+                                    AND gjh.status = 'P'
+                                    AND gir.creation_date <=
+                                           TO_DATE (
+                                              NVL (
+                                                 TO_CHAR (
+                                                    TO_TIMESTAMP (
+                                                       p_collection_time,
+                                                       'YYYY-MM-DD HH24:MI:SS.FF6'),
+                                                    'YYYY-MM-DD HH24:MI:SS'),
+                                                 TO_CHAR (
+                                                    SYSDATE,
+                                                    'YYYY-MM-DD HH24:MI:SS')),
+                                              'YYYY-MM-DD HH24:MI:SS'));
+               END IF;
+            /*
+            ELSIF (p_table_name = 'FA_DISTRIBUTION_ACCOUNTS')
+            THEN
+                -- p_key_value1 = DISTRIBUTION_ID
+                -- p_key_value2 = BOOK_TYPE_CODE
+
+                IF p_key_value2 = 'CORPORATE INDIA'
+                THEN
+                    ln_count := 1;
+                END IF;
+               */
+            ELSIF (P_TABLE_NAME = 'FA_CALENDAR_PERIODS')
+            THEN
+               -- p_key_value1 = CALENDAR_TYPE
+
+               SELECT COUNT (1)
+                 INTO ln_ind_fa_cal_period
+                 FROM FA_CALENDAR_PERIODS
+                WHERE p_key_value7 IN ('India Prorate', 'India Asset');
+
+               IF ln_ind_fa_cal_period > 0
+               THEN
+                  ln_count := 1;
+               END IF;
+            ELSIF (p_table_name = 'FA_ADDITIONS_B')
+            THEN
+               -- p_key_value1 = ASSET_ID
+               -- Check whether BOOK_TYPE_CODE is related to India
+
+               SELECT COUNT (1)
+                 INTO ln_ind_asset_ind
+                 FROM fa_books
+                WHERE     asset_id = TO_NUMBER (p_key_value1)
+                      AND book_type_code = 'CORPORATE INDIA';
+
+               IF ln_ind_asset_ind > 0
+               THEN
+                  SELECT COUNT (1)
+                    INTO ln_count
+                    FROM DUAL
+                   WHERE EXISTS
+                            (SELECT 1
+                               FROM fa_transaction_headers fth,
+                                    fa_adjustments fadj,
+                                    xla_distribution_links xdl,
+                                    xla_events xle,
+                                    xla_ae_headers xah,
+                                    gl_ledgers gl,
+                                    xla_ae_lines xal,
+                                    gl_import_references gir,
+                                    gl_je_headers gje
+                              WHERE     fth.asset_id =
+                                           TO_NUMBER (p_key_value1)
+                                    AND fth.transaction_type_code =
+                                           'ADDITION'
+                                    AND fth.transaction_header_id =
+                                           fadj.transaction_header_id
+                                    AND fadj.transaction_header_id =
+                                           xdl.source_distribution_id_num_1
+                                    AND fadj.adjustment_line_id =
+                                           xdl.source_distribution_id_num_2
+                                    AND xdl.application_id = 140
+                                    AND fadj.book_type_code =
+                                           'CORPORATE INDIA'
+                                    AND xdl.event_id = xle.event_id
+                                    AND xle.event_type_code = 'ADDITIONS'
+                                    AND xdl.ae_header_id = xah.ae_header_id
+                                    AND xah.ledger_id = gl.ledger_id
+                                    AND gl.name IN ('IN Primary INR',
+                                                    'IN Secondary INR')
+                                    AND xdl.ae_header_id = xal.ae_header_id
+                                    AND xdl.ae_line_num = xal.ae_line_num
+                                    AND xal.application_id = 140
+                                    AND xal.gl_sl_link_id = gir.gl_sl_link_id
+                                    AND gir.gl_sl_link_table = 'XLAJEL'
+                                    AND gir.je_header_id = gje.je_header_id
+                                    AND gje.ledger_id = gl.ledger_id
+                                    AND gje.status = 'P'
+                                    AND gir.creation_date <=
+                                           TO_DATE (
+                                              NVL (
+                                                 TO_CHAR (
+                                                    TO_TIMESTAMP (
+                                                       p_collection_time,
+                                                       'YYYY-MM-DD HH24:MI:SS.FF6'),
+                                                    'YYYY-MM-DD HH24:MI:SS'),
+                                                 TO_CHAR (
+                                                    SYSDATE,
+                                                    'YYYY-MM-DD HH24:MI:SS')),
+                                              'YYYY-MM-DD HH24:MI:SS'));
+               END IF;
+            ELSIF (p_table_name = 'FA_CATEGORIES_B') --Added by Aditya R on 6-jun-25 CRQ CHG0240476
+            THEN
+               -- p_key_value1 = CATEGORY_ID
+               -- Check whether BOOK_TYPE_CODE is related to India
+
+               SELECT COUNT (1)
+                 INTO ln_ind_category_ind
+                 FROM FA_CATEGORY_BOOKS
+                WHERE     category_id = TO_NUMBER (p_key_value1)
+                      AND book_type_code = 'CORPORATE INDIA';
+
+               IF ln_ind_category_ind > 0
+               THEN
+                  ln_count := 1;
+               END IF;
+            ELSIF (p_table_name = 'FA_ASSET_HISTORY') --Added by Aditya R on 7-jun-25 CRQ CHG0240476
+            THEN
+               -- p_key_value1 = ASSET_ID
+               -- Check whether BOOK_TYPE_CODE is related to India
+
+               SELECT COUNT (1)
+                 INTO ln_ind_category_ind
+                 FROM FA_BOOKS
+                WHERE     ASSET_ID = TO_NUMBER (p_key_value1)
+                      AND book_type_code = 'CORPORATE INDIA';
+
+               IF ln_ind_category_ind > 0
+               THEN
+                  ln_count := 1;
+               END IF;
+            ELSIF (p_table_name = 'GL_PERIOD_TYPES') -- Added by Aditya R on 7-Jun-25
+            THEN
+               -- p_key_value1 = PERIOD_TYPE_ID
+               -- p_key_value2 = DESCRIPTION
+               -- p_key_value3 = PERIOD_TYPE
+
+               SELECT COUNT (1)
+                 INTO ln_ind_gl_period_types
+                 FROM gl_periods
+                WHERE     PERIOD_SET_NAME = 'Std Accounting'
+                      AND period_type = p_key_value3;
+
+               IF ln_ind_gl_period_types > 0
+               THEN
+                  ln_count := 1;
+               END IF;
+            /*
+        ELSIF (p_table_name = 'FA_BOOKS')
+        THEN
+            -- p_key_value1 = TRANSACTION_HEADER_ID_IN
+            -- p_key_value2 = BOOK_TYPE_CODE
+
+            IF p_key_value2 = 'CORPORATE INDIA'
+            THEN
+                SELECT COUNT(1) INTO ln_count
+                  FROM DUAL
+                 WHERE EXISTS
+                    (
+                        SELECT 1
+                          FROM fa_transaction_headers fth
+                             , fa_adjustments fadj
+                             , xla_distribution_links xdl
+                             , xla_events xle
+                             , xla_ae_headers xah
+                             , gl_ledgers gl
+                             , xla_ae_lines xal
+                             , gl_import_references gir
+                             , gl_je_headers gje
+                        WHERE fth.transaction_header_id = TO_NUMBER(p_key_value1)
+                          AND fth.transaction_header_id = fadj.transaction_header_id
+                          AND fadj.transaction_header_id = xdl.source_distribution_id_num_1
+                          AND fadj.adjustment_line_id = xdl.source_distribution_id_num_2
+                          AND xdl.application_id = 140
+                          AND fadj.book_type_code = 'CORPORATE INDIA'
+                          AND xdl.event_id = xle.event_id
+                          AND xdl.source_distribution_type = 'TRX'
+                          --AND xle.event_type_code = 'ADDITIONS'
+                          AND xdl.ae_header_id = xah.ae_header_id
+                          AND xah.ledger_id = gl.ledger_id
+                          AND gl.name IN ('IN Primary INR', 'IN Secondary INR')
+                          AND xdl.ae_header_id = xal.ae_header_id
+                          AND xdl.ae_line_num = xal.ae_line_num
+                          AND xal.application_id = 140
+                          AND xal.gl_sl_link_id = gir.gl_sl_link_id
+                          AND gir.gl_sl_link_table = 'XLAJEL'
+                          AND gir.je_header_id = gje.je_header_id
+                          AND gje.ledger_id = gl.ledger_id
+                          AND gje.status = 'P'
+                          AND gir.creation_date <= TO_DATE(nvl(to_char(TO_TIMESTAMP(p_collection_time, 'YYYY-MM-DD HH24:MI:SS.FF6'),
+                                                                'YYYY-MM-DD HH24:MI:SS'), to_char(sysdate, 'YYYY-MM-DD HH24:MI:SS')),
+                                                               'YYYY-MM-DD HH24:MI:SS')
+                        UNION ALL
+                        SELECT 1
+                          FROM fa_transaction_headers fth
+                             , fa_adjustments fadj
+                             , xla_distribution_links xdl
+                             , xla_events xle
+                             , xla_ae_headers xah
+                             , gl_ledgers gl
+                             , xla_ae_lines xal
+                             , gl_import_references gir
+                             , gl_je_headers gje
+                        WHERE fth.transaction_header_id = TO_NUMBER(p_key_value1)
+                         AND fth.transaction_header_id = fadj.transaction_header_id
+                         AND fadj.transaction_header_id = xdl.source_distribution_id_num_1
+                         AND fadj.adjustment_line_id = xdl.source_distribution_id_num_2
+                         AND xdl.application_id = 140
+                         AND fadj.book_type_code = 'CORPORATE INDIA'
+                         AND xdl.event_id = xle.event_id
+                         AND xdl.source_distribution_type = 'TRX'
+                         --AND xle.event_type_code = 'ADDITIONS'
+                         AND xdl.ae_header_id = xah.ae_header_id
+                         AND xah.ledger_id = gl.ledger_id
+                         AND gl.name IN ('IN Primary INR', 'IN Secondary INR')
+                         AND xdl.ae_header_id = xal.ae_header_id
+                         AND xdl.ae_line_num = xal.ae_line_num
+                         AND xal.application_id = 140
+                         AND xal.gl_sl_link_id = gir.gl_sl_link_id
+                         AND gir.gl_sl_link_table = 'XLAJEL'
+                         AND gir.je_header_id = gje.je_header_id
+                         AND gje.ledger_id = gl.ledger_id
+                         AND gje.status = 'P'
+                         AND gir.creation_date <= TO_DATE(nvl(to_char(TO_TIMESTAMP(p_collection_time, 'YYYY-MM-DD HH24:MI:SS.FF6'),
+                                                                'YYYY-MM-DD HH24:MI:SS'), to_char(sysdate, 'YYYY-MM-DD HH24:MI:SS')),
+                                                               'YYYY-MM-DD HH24:MI:SS')
+                   );
+              END IF;
+         */
+            ELSIF (p_table_name = 'FA_TRANSACTION_HEADERS')
+            THEN
+               -- p_key_value1 = TRANSACTION_HEADER_ID
+               -- p_key_value2 = BOOK_TYPE_CODE
+
+               IF p_key_value2 = 'CORPORATE INDIA'
+               THEN
+                  SELECT COUNT (1)
+                    INTO ln_count
+                    FROM DUAL
+                   WHERE EXISTS
+                            (SELECT 1
+                               FROM fa_adjustments fadj,
+                                    xla_distribution_links xdl,
+                                    xla_events xle,
+                                    xla_ae_headers xah,
+                                    gl_ledgers gl,
+                                    xla_ae_lines xal,
+                                    gl_import_references gir,
+                                    gl_je_headers gje
+                              WHERE     fadj.transaction_header_id =
+                                           TO_NUMBER (p_key_value1)
+                                    AND fadj.transaction_header_id =
+                                           xdl.source_distribution_id_num_1
+                                    AND fadj.adjustment_line_id =
+                                           xdl.source_distribution_id_num_2
+                                    AND xdl.application_id = 140
+                                    AND fadj.book_type_code =
+                                           'CORPORATE INDIA'
+                                    AND xdl.event_id = xle.event_id
+                                    AND xdl.ae_header_id = xah.ae_header_id
+                                    AND xah.ledger_id = gl.ledger_id
+                                    AND gl.name IN ('IN Primary INR',
+                                                    'IN Secondary INR')
+                                    AND xdl.ae_header_id = xal.ae_header_id
+                                    AND xdl.ae_line_num = xal.ae_line_num
+                                    AND xal.application_id = 140
+                                    AND xal.gl_sl_link_id = gir.gl_sl_link_id
+                                    AND gir.gl_sl_link_table = 'XLAJEL'
+                                    AND gir.je_header_id = gje.je_header_id
+                                    AND gje.ledger_id = gl.ledger_id
+                                    AND gje.status = 'P'
+                                    AND gir.creation_date <=
+                                           TO_DATE (
+                                              NVL (
+                                                 TO_CHAR (
+                                                    TO_TIMESTAMP (
+                                                       p_collection_time,
+                                                       'YYYY-MM-DD HH24:MI:SS.FF6'),
+                                                    'YYYY-MM-DD HH24:MI:SS'),
+                                                 TO_CHAR (
+                                                    SYSDATE,
+                                                    'YYYY-MM-DD HH24:MI:SS')),
+                                              'YYYY-MM-DD HH24:MI:SS'));
+               END IF;
+            ELSIF (p_table_name = 'FA_ADJUSTMENTS')
+            THEN
+               -- p_key_value1 = TRANSACTION_HEADER_ID
+               -- p_key_value2 = BOOK_TYPE_CODE
+
+               IF p_key_value2 = 'CORPORATE INDIA'
+               THEN
+                  ln_count := 1;
+               /*   -- COndition to check posted or unposted is removed  (CHG0233057 )
+
+                                  SELECT COUNT(1) INTO ln_count
+                                    FROM DUAL
+                                   WHERE EXISTS
+                                      (
+                                           SELECT 1
+                                             FROM fa_adjustments fadj
+                                                , xla_distribution_links xdl
+                                                , xla_events xle
+                                                , xla_ae_headers xah
+                                                , gl_ledgers gl
+                                                , xla_ae_lines xal
+                                                , gl_import_references gir
+                                                , gl_je_headers gje
+                                           WHERE xdl.source_distribution_id_num_1 =  TO_NUMBER(p_key_value1)
+                                             AND fadj.adjustment_line_id = xdl.source_distribution_id_num_2
+                                             AND xdl.application_id = 140
+                                             AND fadj.book_type_code = 'CORPORATE INDIA'
+                                             AND xdl.event_id = xle.event_id
+                                             AND xle.event_type_code = 'ADDITIONS'
+                                             AND xdl.ae_header_id = xah.ae_header_id
+                                             AND xah.ledger_id = gl.ledger_id
+                                             AND gl.name IN ('IN Primary INR', 'IN Secondary INR')
+                                             AND xdl.ae_header_id = xal.ae_header_id
+                                             AND xdl.ae_line_num = xal.ae_line_num
+                                             AND xal.application_id = 140
+                                             AND xal.gl_sl_link_id = gir.gl_sl_link_id
+                                             AND gir.gl_sl_link_table = 'XLAJEL'
+                                             AND gir.je_header_id = gje.je_header_id
+                                             AND gje.ledger_id = gl.ledger_id
+                                             AND gje.status = 'P'
+                                             AND gir.creation_date <= TO_DATE(nvl(to_char(TO_TIMESTAMP(p_collection_time, 'YYYY-MM-DD HH24:MI:SS.FF6'),
+                                                                              'YYYY-MM-DD HH24:MI:SS'), to_char(sysdate, 'YYYY-MM-DD HH24:MI:SS')),
+                                                                             'YYYY-MM-DD HH24:MI:SS')
+                                    ); */
+               END IF;
+            /*       --Removed
+            ELSIF (p_table_name = 'FA_DEPRN_SUMMARY')
+             THEN
+                   -- p_key_value1 = BOOK_TYPE_CODE
+                   -- p_key_value2 = ASSET_ID
+                   -- p_key_value3 = PERIOD_COUNTER
+
+                   IF p_key_value1 = 'CORPORATE INDIA'
+                   THEN
+                         SELECT COUNT(1) INTO ln_count
+                           FROM DUAL
+                          WHERE EXISTS
+                             (
+                                 SELECT 1
+                                   FROM fa.fa_deprn_detail fdd
+                                      , xla_distribution_links xdl
+                                      , xla_ae_headers xah
+                                      , gl_ledgers gl
+                                      , xla_ae_lines xal
+                                      , gl_import_references gir
+                                      , gl_je_headers gjh
+                                 WHERE fdd.book_type_code = p_key_value1
+                                   AND fdd.asset_id = TO_NUMBER(p_key_value2)
+                                   AND fdd.period_counter =  TO_NUMBER(p_key_value3)
+                                   AND xdl.source_distribution_id_num_1 = fdd.asset_id
+                                   AND xdl.source_distribution_id_num_2 = fdd.period_counter
+                                   AND xdl.source_distribution_id_num_3 = fdd.deprn_run_id
+                                   AND xdl.source_distribution_id_num_5 = fdd.distribution_id
+                                   AND xdl.event_id = fdd.event_id
+                                   AND xdl.source_distribution_type = 'DEPRN'
+                                   AND xdl.application_id = 140
+                                   AND xdl.ae_header_id = xah.ae_header_id
+                                   AND xah.ledger_id = gl.ledger_id
+                                   AND xah.application_id = 140
+                                   AND gl.name IN ('IN Primary INR', 'IN Secondary INR')
+                                   AND xdl.ae_header_id = xal.ae_header_id
+                                   AND xdl.ae_line_num = xal.ae_line_num
+                                   AND xal.gl_sl_link_id  = gir.gl_sl_link_id
+                                   AND gjh.ledger_id = gl.ledger_id
+                                   AND gir.je_header_id = gjh.je_header_id
+                                   AND gjh.status = 'P'
+                                   AND gir.creation_date <= TO_DATE(nvl(to_char(TO_TIMESTAMP(p_collection_time, 'YYYY-MM-DD HH24:MI:SS.FF6'),
+                                                                     'YYYY-MM-DD HH24:MI:SS'), to_char(sysdate, 'YYYY-MM-DD HH24:MI:SS')),
+                                                                    'YYYY-MM-DD HH24:MI:SS')
+                             );
+                   END IF;
+                   */
+            ELSIF (p_table_name = 'FA_DISTRIBUTION_HISTORY') --Added by Aditya R CRQ CHG0240476
+            THEN
+               -- p_key_value1 = TRANSACTION_HEADER_ID_IN
+               -- p_key_value2 = TRANSACTION_HEADER_ID_OUT
+               -- p_key_value3 = BOOK_TYPE_CODE
+
+               IF p_key_value3 = 'CORPORATE INDIA'
+               THEN
+                  ln_count := 1;
+               END IF;
+            ELSIF (p_table_name = 'FA_DEPRN_PERIODS')  --Added by Aditya R CRQ CHG0240476
+            THEN
+               -- p_key_value1 = BOOK_TYPE_CODE
+
+               IF p_key_value1 = 'CORPORATE INDIA'
+               THEN
+                  ln_count := 1;
+               END IF;
+            ELSIF (p_table_name = 'FA_CATEGORY_BOOKS') --Added by Aditya R CRQ CHG0240476
+            THEN
+               -- p_key_value1 = CATEGORY_ID
+               -- p_key_value2 = BOOK_TYPE_CODE
+
+               IF p_key_value2 = 'CORPORATE INDIA'
+               THEN
+                  ln_count := 1;
+               END IF;
+            ELSIF (p_table_name = 'FA_BOOK_CONTROLS')  --Added by Aditya R CRQ CHG0240476
+            THEN
+               -- p_key_value1 = BOOK_CONTROL_ID
+               -- p_key_value2 = BOOK_TYPE_CODE
+
+               IF p_key_value2 = 'CORPORATE INDIA'
+               THEN
+                  ln_count := 1;
+               END IF;
+            ELSIF (p_table_name = 'FA_DEPRN_DETAIL')
+            THEN
+               -- p_key_value1 = ASSET_ID
+               -- p_key_value2 = PERIOD_COUNTER
+               -- p_key_value3 = DISTRIBUTION_ID
+               -- p_key_value4 = BOOK_TYPE_CODE
+
+               IF p_key_value4 = 'CORPORATE INDIA'
+               THEN
+                  SELECT COUNT (1)
+                    INTO ln_count
+                    FROM DUAL
+                   WHERE EXISTS
+                            (SELECT 1
+                               FROM fa_deprn_detail fdd,
+                                    xla_distribution_links xdl,
+                                    xla_ae_headers xah,
+                                    gl_ledgers gl,
+                                    xla_ae_lines xal,
+                                    gl_import_references gir,
+                                    gl_je_headers gjh
+                              WHERE     fdd.book_type_code =
+                                           'CORPORATE INDIA'
+                                    AND xdl.source_distribution_id_num_1 =
+                                           TO_NUMBER (p_key_value1)
+                                    AND xdl.source_distribution_id_num_2 =
+                                           TO_NUMBER (p_key_value2)
+                                    -- AND xdl.source_distribution_id_num_3 = fdd.deprn_run_id
+                                    AND xdl.source_distribution_id_num_5 =
+                                           TO_NUMBER (p_key_value3)
+                                    AND xdl.event_id = fdd.event_id
+                                    AND xdl.source_distribution_type =
+                                           'DEPRN'
+                                    AND xdl.application_id = 140
+                                    AND xdl.ae_header_id = xah.ae_header_id
+                                    AND xah.ledger_id = gl.ledger_id
+                                    AND xah.application_id = 140
+                                    AND gl.name IN ('IN Primary INR',
+                                                    'IN Secondary INR')
+                                    AND xdl.ae_header_id = xal.ae_header_id
+                                    AND xdl.ae_line_num = xal.ae_line_num
+                                    AND xal.gl_sl_link_id = gir.gl_sl_link_id
+                                    AND gjh.ledger_id = gl.ledger_id
+                                    AND gir.je_header_id = gjh.je_header_id
+                                    AND gjh.status = 'P'
+                                    AND gir.creation_date <=
+                                           TO_DATE (
+                                              NVL (
+                                                 TO_CHAR (
+                                                    TO_TIMESTAMP (
+                                                       p_collection_time,
+                                                       'YYYY-MM-DD HH24:MI:SS.FF6'),
+                                                    'YYYY-MM-DD HH24:MI:SS'),
+                                                 TO_CHAR (
+                                                    SYSDATE,
+                                                    'YYYY-MM-DD HH24:MI:SS')),
+                                              'YYYY-MM-DD HH24:MI:SS'));
+               END IF;
+            ELSIF (p_table_name = 'FA_RETIREMENTS')
+            THEN
+               -- p_key_value1 = ASSET_ID
+               -- p_key_value2 = TRANSACTION_HEADER_ID_IN
+               -- p_key_value3 = BOOK_TYPE_CODE
+
+               IF p_key_value3 = 'CORPORATE INDIA'
+               THEN
+                  SELECT COUNT (1)
+                    INTO ln_count
+                    FROM DUAL
+                   WHERE EXISTS
+                            (SELECT 1
+                               FROM fa_transaction_headers fth,
+                                    fa_adjustments fadj,
+                                    xla_distribution_links xdl,
+                                    xla_events xle,
+                                    xla_ae_headers xah,
+                                    gl_ledgers gl,
+                                    xla_ae_lines xal,
+                                    gl_import_references gir,
+                                    gl_je_headers gje
+                              WHERE     fth.asset_id =
+                                           TO_NUMBER (p_key_value1)
+                                    AND fth.transaction_header_id =
+                                           TO_NUMBER (p_key_value2)
+                                    AND fth.transaction_header_id =
+                                           fadj.transaction_header_id
+                                    AND fadj.transaction_header_id =
+                                           xdl.source_distribution_id_num_1
+                                    AND fadj.adjustment_line_id =
+                                           xdl.source_distribution_id_num_2
+                                    AND xdl.application_id = 140
+                                    AND fadj.book_type_code =
+                                           'CORPORATE INDIA'
+                                    AND xdl.event_id = xle.event_id
+                                    AND xle.event_type_code LIKE
+                                           '%RETIREMENTS%'
+                                    AND xdl.ae_header_id = xah.ae_header_id
+                                    AND xah.ledger_id = gl.ledger_id
+                                    AND gl.name IN ('IN Primary INR',
+                                                    'IN Secondary INR')
+                                    AND xdl.ae_header_id = xal.ae_header_id
+                                    AND xdl.ae_line_num = xal.ae_line_num
+                                    AND xal.application_id = 140
+                                    AND xal.gl_sl_link_id = gir.gl_sl_link_id
+                                    AND gir.gl_sl_link_table = 'XLAJEL'
+                                    AND gir.je_header_id = gje.je_header_id
+                                    AND gje.ledger_id = gl.ledger_id
+                                    AND gje.status = 'P'
+                                    AND gir.creation_date <=
+                                           TO_DATE (
+                                              NVL (
+                                                 TO_CHAR (
+                                                    TO_TIMESTAMP (
+                                                       p_collection_time,
+                                                       'YYYY-MM-DD HH24:MI:SS.FF6'),
+                                                    'YYYY-MM-DD HH24:MI:SS'),
+                                                 TO_CHAR (
+                                                    SYSDATE,
+                                                    'YYYY-MM-DD HH24:MI:SS')),
+                                              'YYYY-MM-DD HH24:MI:SS'));
+               END IF;
+            ELSIF (p_table_name = 'FA_BOOKS')
+            THEN
+               -- p_key_value1 = TRANSACTION_HEADER_ID_IN
+               -- p_key_value2 = BOOK_TYPE_CODE
+
+               IF p_key_value2 = 'CORPORATE INDIA'
+               THEN
+                  SELECT COUNT (1)
+                    INTO ln_count
+                    FROM DUAL
+                   WHERE EXISTS
+                            (SELECT 1
+                               FROM fa_transaction_headers fth,
+                                    fa_adjustments fadj,
+                                    xla_distribution_links xdl,
+                                    xla_events xle,
+                                    xla_ae_headers xah,
+                                    gl_ledgers gl,
+                                    xla_ae_lines xal,
+                                    gl_import_references gir,
+                                    gl_je_headers gje
+                              WHERE     fth.transaction_header_id =
+                                           TO_NUMBER (p_key_value1)
+                                    AND fth.transaction_header_id =
+                                           fadj.transaction_header_id
+                                    AND fadj.transaction_header_id =
+                                           xdl.source_distribution_id_num_1
+                                    AND fadj.adjustment_line_id =
+                                           xdl.source_distribution_id_num_2
+                                    AND xdl.application_id = 140
+                                    AND fadj.book_type_code =
+                                           'CORPORATE INDIA'
+                                    AND xdl.event_id = xle.event_id
+                                    AND xdl.source_distribution_type = 'TRX'
+                                    --AND xle.event_type_code = 'ADDITIONS'
+                                    AND xdl.ae_header_id = xah.ae_header_id
+                                    AND xah.ledger_id = gl.ledger_id
+                                    AND gl.name IN ('IN Primary INR',
+                                                    'IN Secondary INR')
+                                    AND xdl.ae_header_id = xal.ae_header_id
+                                    AND xdl.ae_line_num = xal.ae_line_num
+                                    AND xal.application_id = 140
+                                    AND xal.gl_sl_link_id = gir.gl_sl_link_id
+                                    AND gir.gl_sl_link_table = 'XLAJEL'
+                                    AND gir.je_header_id = gje.je_header_id
+                                    AND gje.ledger_id = gl.ledger_id
+                                    AND gje.status = 'P'
+                                    AND gir.creation_date <=
+                                           TO_DATE (
+                                              NVL (
+                                                 TO_CHAR (
+                                                    TO_TIMESTAMP (
+                                                       p_collection_time,
+                                                       'YYYY-MM-DD HH24:MI:SS.FF6'),
+                                                    'YYYY-MM-DD HH24:MI:SS'),
+                                                 TO_CHAR (
+                                                    SYSDATE,
+                                                    'YYYY-MM-DD HH24:MI:SS')),
+                                              'YYYY-MM-DD HH24:MI:SS')
+                             UNION ALL
+                             SELECT 1
+                               FROM fa_transaction_headers fth,
+                                    fa_adjustments fadj,
+                                    xla_distribution_links xdl,
+                                    xla_events xle,
+                                    xla_ae_headers xah,
+                                    gl_ledgers gl,
+                                    xla_ae_lines xal,
+                                    gl_import_references gir,
+                                    gl_je_headers gje
+                              WHERE     fth.transaction_header_id =
+                                           TO_NUMBER (p_key_value1)
+                                    AND fth.transaction_header_id =
+                                           fadj.transaction_header_id
+                                    AND fadj.transaction_header_id =
+                                           xdl.source_distribution_id_num_1
+                                    AND fadj.adjustment_line_id =
+                                           xdl.source_distribution_id_num_2
+                                    AND xdl.application_id = 140
+                                    AND fadj.book_type_code =
+                                           'CORPORATE INDIA'
+                                    AND xdl.event_id = xle.event_id
+                                    AND xdl.source_distribution_type = 'TRX'
+                                    --AND xle.event_type_code = 'ADDITIONS'
+                                    AND xdl.ae_header_id = xah.ae_header_id
+                                    AND xah.ledger_id = gl.ledger_id
+                                    AND gl.name IN ('IN Primary INR',
+                                                    'IN Secondary INR')
+                                    AND xdl.ae_header_id = xal.ae_header_id
+                                    AND xdl.ae_line_num = xal.ae_line_num
+                                    AND xal.application_id = 140
+                                    AND xal.gl_sl_link_id = gir.gl_sl_link_id
+                                    AND gir.gl_sl_link_table = 'XLAJEL'
+                                    AND gir.je_header_id = gje.je_header_id
+                                    AND gje.ledger_id = gl.ledger_id
+                                    AND gje.status = 'P'
+                                    AND gir.creation_date <=
+                                           TO_DATE (
+                                              NVL (
+                                                 TO_CHAR (
+                                                    TO_TIMESTAMP (
+                                                       p_collection_time,
+                                                       'YYYY-MM-DD HH24:MI:SS.FF6'),
+                                                    'YYYY-MM-DD HH24:MI:SS'),
+                                                 TO_CHAR (
+                                                    SYSDATE,
+                                                    'YYYY-MM-DD HH24:MI:SS')),
+                                              'YYYY-MM-DD HH24:MI:SS'));
+               END IF;
+            ELSIF (p_table_name = 'FA_DISTRIBUTION_ACCOUNTS')
+            THEN
+               -- p_key_value1 = DISTRIBUTION_ID
+               -- p_key_value2 = BOOK_TYPE_CODE
+
+               IF p_key_value2 = 'CORPORATE INDIA'
+               THEN
+                  ln_count := 1;
+               END IF;
+            ELSIF (p_table_name = 'CE_BANK_ACCOUNTS')
+            THEN
+               -- p_key_value1 = ACCOUNT_OWNER_ORG_ID
+
+               SELECT COUNT (1)
+                 INTO ln_count
+                 FROM xle_entity_profiles
+                WHERE     UPPER (name) LIKE '%INDIA%'
+                      AND legal_entity_id = TO_NUMBER (p_key_value1);
+            ELSIF (p_table_name = 'IBY_EXTERNAL_PAYEES_ALL')
+            THEN
+               -- p_key_value1 = EXT_PAYEE_ID
+               -- p_key_value2 = PAYEE_PARTY_ID
+
+               -- Check whether the payments are related to India Operating Units in IBY_PAYMENTS_ALL table
+               -- Changed the is_ind_org function as per requirment.by Aditya R on 12-Jun-2025 CRQ CHG0240476
+
+               --               SELECT COUNT (1)
+               --                 INTO ln_count
+               --                 FROM DUAL
+               --                WHERE EXISTS
+               --                         (SELECT 1
+               --                            FROM iby_payments_all
+               --                           WHERE     payee_party_id =
+               --                                        TO_NUMBER (p_key_value2)
+               --                                 AND is_ind_org (org_id, NULL) = 1);
+
+               SELECT COUNT (1)
+                 INTO ln_count
+                 FROM DUAL
+                WHERE EXISTS
+                         (SELECT 1
+                            FROM iby_payments_all IBA,
+                                 ORG_ORGANIZATION_DEFINITIONS OOD
+                           WHERE     OOD.OPERATING_UNIT = IBA.ORG_ID
+                                 AND SET_OF_BOOKS_ID IN (3043, 3047)
+                                 AND payee_party_id =
+                                        TO_NUMBER (p_key_value2));
+            ELSIF (p_table_name = 'IBY_PMT_INSTR_USES_ALL')
+            THEN
+               -- p_key_value1 = INSTRUMENT_PAYMENT_USE_ID
+
+               SELECT COUNT (1)
+                 INTO ln_count
+                 FROM DUAL
+                WHERE EXISTS
+                         (SELECT 1
+                            FROM iby_pmt_instr_uses_all ipiu,
+                                 iby_external_payees_all iepa,
+                                 iby_payments_all ipa
+                           WHERE     ipiu.instrument_payment_use_id =
+                                        TO_NUMBER (p_key_value1)
+                                 AND ipiu.ext_pmt_party_id =
+                                        iepa.ext_payee_id
+                                 AND iepa.payee_party_id = ipa.payee_party_id
+                                 AND is_ind_org (ipa.org_id, NULL) = 1);
+            ELSIF (p_table_name = 'IBY_EXT_BANK_ACCOUNTS')
+            THEN
+               -- p_key_value1 = EXT_BANK_ACCOUNT_ID
+
+               SELECT COUNT (1)
+                 INTO ln_count
+                 FROM DUAL
+                WHERE EXISTS
+                         (SELECT 1
+                            FROM iby_pmt_instr_uses_all ipiu,
+                                 iby_external_payees_all iepa,
+                                 iby_ext_bank_accounts ieba,
+                                 iby_payments_all ipa
+                           WHERE     ieba.ext_bank_account_id =
+                                        TO_NUMBER (p_key_value1)
+                                 AND ipiu.ext_pmt_party_id =
+                                        iepa.ext_payee_id
+                                 AND ipiu.instrument_id =
+                                        ieba.ext_bank_account_id
+                                 AND iepa.payee_party_id = ipa.payee_party_id
+                                 AND is_ind_org (ipa.org_id, NULL) = 1);
+            ELSIF (P_TABLE_NAME = 'AR_PAYMENT_SCHEDULES_ALL')
+            THEN
+               -- p_key_value1 = PAYMENT_SCHEDULE_ID
+               -- p_key_value2 = CUSTOMER_TRX_ID
+               -- p_key_value3 = ORG_ID
+
+               IF 1 = is_ind_org (p_key_value3, NULL)
+               THEN
+                  SELECT COUNT (1)
+                    INTO ln_count
+                    FROM DUAL
+                   WHERE (   EXISTS
+                                (SELECT 1
+                                   FROM APPS.AR_RECEIVABLE_APPLICATIONS_ALL ARA,
+                                        APPS.AR_DISTRIBUTIONS_ALL ADA,
+                                        apps.XLA_EVENTS XE,
+                                        APPS.XLA_AE_HEADERS XAH,
+                                        APPS.XLA_AE_LINES XAL,
+                                        APPS.XLA_DISTRIBUTION_LINKS XDL
+                                  --HR_OPERATING_UNITS HOU
+                                  WHERE     ARA.PAYMENT_SCHEDULE_ID =
+                                               TO_NUMBER (p_key_value1) --PAYMENT_SCHEDULE_ID is pk1
+                                        AND ARA.RECEIVABLE_APPLICATION_ID =
+                                               ADA.SOURCE_ID
+                                        AND ADA.SOURCE_TABLE = 'RA'
+                                        AND ARA.EVENT_ID = XE.EVENT_ID
+                                        AND XE.ENTITY_ID = XAH.ENTITY_ID
+                                        AND XE.EVENT_STATUS_CODE = 'P'
+                                        AND XE.PROCESS_STATUS_CODE = 'P'
+                                        AND xdl.SOURCE_DISTRIBUTION_ID_NUM_1 =
+                                               ada.line_id
+                                        AND xdl.event_id = xe.event_id
+                                        AND xdl.ae_header_id =
+                                               xah.ae_header_id
+                                        AND xdl.event_id = xah.event_id
+                                        AND xdl.ae_header_id =
+                                               xal.ae_header_id
+                                        AND XDL.AE_LINE_NUM = XAL.AE_LINE_NUM
+                                        AND 1 = is_ind_org (ARA.ORG_ID, NULL)
+                                        --  AND HOU.NAME IN ('CTT India Dewas Operating Unit','CTT India Pithampur Operating Unit')
+                                        AND SOURCE_DISTRIBUTION_TYPE =
+                                               'AR_DISTRIBUTIONS_ALL'
+                                        AND XAH.AE_HEADER_ID =
+                                               XAL.AE_HEADER_ID
+                                        AND xal.creation_date <=
+                                               TO_DATE (
+                                                  NVL (
+                                                     TO_CHAR (
+                                                        TO_TIMESTAMP (
+                                                           p_collection_time,
+                                                           'YYYY-MM-DD HH24:MI:SS.FF6'),
+                                                        'YYYY-MM-DD HH24:MI:SS'),
+                                                     TO_CHAR (
+                                                        SYSDATE,
+                                                        'YYYY-MM-DD HH24:MI:SS')),
+                                                  'YYYY-MM-DD HH24:MI:SS') --  AND APSA.PAYMENT_SCHEDULE_ID = ARA.PAYMENT_SCHEDULE_ID
+                                                                          )
+                          OR EXISTS
+                                (SELECT 1
+                                   FROM APPS.RA_CUST_TRX_LINE_GL_DIST_ALL RCTL,
+                                        apps.XLA_EVENTS XE,
+                                        APPS.XLA_AE_HEADERS XAH,
+                                        APPS.XLA_AE_LINES XAL,
+                                        APPS.XLA_DISTRIBUTION_LINKS XDL
+                                  --  APPS.HR_OPERATING_UNITS HOU
+                                  WHERE     RCTL.CUSTOMER_TRX_ID =
+                                               TO_NUMBER (p_key_value2) -- CUSTOMER_TRX_ID is pk2
+                                        AND RCTL.EVENT_ID = XE.EVENT_ID
+                                        --    AND RCTL.CUSTOMER_TRX_ID = APSA.CUSTOMER_TRX_ID
+                                        AND XE.ENTITY_ID = XAH.ENTITY_ID
+                                        AND XE.EVENT_STATUS_CODE = 'P'
+                                        AND XE.PROCESS_STATUS_CODE = 'P'
+                                        AND xdl.SOURCE_DISTRIBUTION_ID_NUM_1 =
+                                               RCTL.CUST_TRX_LINE_GL_DIST_ID
+                                        AND xdl.event_id = xe.event_id
+                                        AND xdl.ae_header_id =
+                                               xah.ae_header_id
+                                        AND xdl.event_id = xah.event_id
+                                        AND xdl.ae_header_id =
+                                               xal.ae_header_id
+                                        AND XDL.AE_LINE_NUM = XAL.AE_LINE_NUM
+                                        AND 1 =
+                                               is_ind_org (RCTL.ORG_ID, NULL)
+                                        --    AND HOU.NAME IN ('CTT India Dewas Operating Unit','CTT India Pithampur Operating Unit')
+                                        AND SOURCE_DISTRIBUTION_TYPE =
+                                               'RA_CUST_TRX_LINE_GL_DIST_ALL'
+                                        AND XAH.AE_HEADER_ID =
+                                               XAL.AE_HEADER_ID
+                                        AND xal.creation_date <=
+                                               TO_DATE (
+                                                  NVL (
+                                                     TO_CHAR (
+                                                        TO_TIMESTAMP (
+                                                           p_collection_time,
+                                                           'YYYY-MM-DD HH24:MI:SS.FF6'),
+                                                        'YYYY-MM-DD HH24:MI:SS'),
+                                                     TO_CHAR (
+                                                        SYSDATE,
+                                                        'YYYY-MM-DD HH24:MI:SS')),
+                                                  'YYYY-MM-DD HH24:MI:SS')));
+               END IF;
+            ELSIF P_TABLE_NAME IN ('RA_ACCOUNT_DEFAULT_SEGMENTS',
+                                   'FND_FLEX_VALUES_TL',
+                                   'FND_FLEX_VALUES',
+                                   'FA_METHODS',
+                                   'AR_RECEIPT_METHODS',
+                                   'AR_RECEIPT_CLASSES',
+                                   'AP_TERMS_TL',
+                                   'AP_BANK_BRANCHES')
+            THEN
+               ln_count := 1;
+            ELSE
+               l_status_message := P_TABLE_NAME || ' TABLE NOT FOUND.';
+            END IF;
+         --         ELSE
+         --            l_status_message :=
+         --                  l_status_message
+         --               || (   'new values and old values are same'
+         --                   || ' l count is '
+         --                   || ln_count);
+         --         END IF;
+         --         ELSE
+         --            l_status_message :=
+         --               ('No Change in In-scope column values hence ignoring the record');
+         END IF;
+      ELSE
+         ln_count := 0;
+         l_status_message :=
+            (   'Record is updated by Concurrent program p_prog_val = '
+             || p_prog_val);
+      END IF;
+
+
+      --    IF (ln_count > 0)   -- Greater than 0 indicates that data is related to India Ledgers/Operating Units/FA Books
+      IF (ln_count > 0 AND l_status_message IS NULL) -- Greater than 0 indicates that data is related to India Ledgers/Operating Units/FA Books
+      THEN
+         p_count_val := ln_count;
+         --         ln_cp_upd_ind := get_cp_count (p_prog_val);
+         --
+         --         IF ln_cp_upd_ind > 0 -- Greater than 0 indicates that data was updated by concurrent program.
+         --         THEN
+         --            p_count_val := 0;
+         --            l_status_message :=
+         --               (   'Record is updated by Concurrent program p_prog_val = '
+         --                || p_prog_val);
+         --         ELSE
+         /* ln_superuser_access_ind := get_su_update_count(p_client_id);
+
+          IF ln_superuser_access_ind > 0 -- Update is from Diagnostic Menu
+          THEN
+              p_count_val := 1;
+              l_status_message := 'Record is eligible and will get captured in GG';
+          ELSE
+               l_status_message := ( 'User is not a super user CLIEND_ID = '|| p_client_id );
+          END IF;
+          */
+         l_status_message := ('RECORD IS ELIGIBLE WILL GET CAPTURED IN GG');
+      --END IF;
+      ELSIF (ln_count = 0 AND l_status_message IS NULL)
+      /*IF l_status_message IS NULL*/
+      THEN
+         l_status_message := 'UNPOSTED TRANSACTION';
+      --END IF;
+      END IF;
+
+
+
+      xxcbolt_insert_debug_log (p_table_name,
+                                lc_key_value,
+                                p_count_val,
+                                --lc_old_val,
+                                --lc_new_val,
+                                l_status_message);  -- Initialize lists heres.
+   --BEGIN
+   -- commented the below code as its not used anywhere and also causing the performance issue V1.1 (CHG0233057 )
+   --    SELECT concurrent_program_name BULK COLLECT INTO g_program_list FROM fnd_concurrent_programs;
+   --    SELECT concurrent_queue_name BULK COLLECT INTO g_queue_list FROM fnd_concurrent_queues;
+   --  SELECT name BULK COLLECT INTO g_ou_list FROM hr_operating_units WHERE set_of_books_id = 3043;
+   --  END;
+
+
+
+   EXCEPTION
+      WHEN OTHERS
+      THEN
+         p_count_val := 0;
+         p_err_msg :=
+               'Error encountered for '
+            || p_table_name
+            || ' AND p_key_value1,p_key_value2,p_key_value3 are '
+            || p_key_value1
+            || ' '
+            || p_key_value2
+            || ' '
+            || p_key_value3
+            || ' resptly -->'
+            || SQLERRM;
+         xxcbolt_insert_debug_log (p_table_name,
+                                   lc_key_value,
+                                   p_count_val,
+                                   -- lc_old_val,
+                                   -- lc_new_val,
+                                   p_err_msg);
+   END xxcbolt_gg_filter_condition_prc;
+END xxc011962_gg_filter_condition_pkg;
+/
